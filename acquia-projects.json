@@ -1,0 +1,160 @@
+{
+  "projects": [
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "19132-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "dev",
+      "project_path": "/Users/c.de.los.santos/sites/millercoorsd8",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "2025_Dev_1.0",
+      "ssh_url": "millercoorsd8.dev@millercoorsd8dev.ssh.prod.acquia-sites.com",
+      "databases": [
+        "happythursday"
+      ]
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "125091-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode143",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20220714_mp_naming_tool_1.0",
+      "ssh_url": "millercoorsd8.ode143@millercoorsd8ode143.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "131215-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode146",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20230105_coorslight_hub_1.0",
+      "ssh_url": "millercoorsd8.ode146@millercoorsd8ode146.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "136218-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode154",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20230531_atwaterbrewery_1.0",
+      "ssh_url": "millercoorsd8.ode154@millercoorsd8ode154.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "150814-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode161",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20241405_india_beer_1.0",
+      "ssh_url": "millercoorsd8.ode161@millercoorsd8ode161.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "151440-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode162",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20240530_bluerun_1.0",
+      "ssh_url": "millercoorsd8.ode162@millercoorsd8ode162.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "151504-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode163",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20240604_WE_Portal_1.0",
+      "ssh_url": "millercoorsd8.ode163@millercoorsd8ode163.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "155508-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode164",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20240926_simplypromo_1.0",
+      "ssh_url": "millercoorsd8.ode164@millercoorsd8ode164.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "157129-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode165",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20241119_project_canopy_1.0",
+      "ssh_url": "millercoorsd8.ode165@millercoorsd8ode165.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "59964-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode38",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20200629_bm_locator_1.5",
+      "ssh_url": "millercoorsd8.ode38@millercoorsd8ode38.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "78112-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode64",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20240606_pdf_cleanup_1.0",
+      "ssh_url": "millercoorsd8.ode64@millercoorsd8ode64.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "78371-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode65",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20241014_b2b_ca_cgcloud_1.0",
+      "ssh_url": "millercoorsd8.ode65@millercoorsd8ode65.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "78487-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode66",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20210208_blog_1.0",
+      "ssh_url": "millercoorsd8.ode66@millercoorsd8ode66.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "88900-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ode95",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "feature/20231212_coors_light_hu_contry_1.0",
+      "ssh_url": "millercoorsd8.ode95@millercoorsd8ode95.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "19131-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "prod",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "tags/release/20250220_CoorsADA_Avmodule_error",
+      "ssh_url": "millercoorsd8.prod@millercoorsd8.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "20810-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "ra",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "AcquiaRA-2024-12-19-07-20-18",
+      "ssh_url": "millercoorsd8.ra@millercoorsd8ra.ssh.prod.acquia-sites.com"
+    },
+    {
+      "app_name": "millercoorsd8",
+      "environment_id": "19133-ddbb7077-3843-4873-86dd-28fde7046bfd",
+      "environment_type": "test",
+      "project_path": "",
+      "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
+      "branch": "2025_Stage_1.0",
+      "ssh_url": "millercoorsd8.test@millercoorsd8stg.ssh.prod.acquia-sites.com"
+    }
+  ]
+}

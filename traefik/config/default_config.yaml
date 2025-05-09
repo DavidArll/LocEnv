@@ -1,0 +1,10 @@
+#ddev-generated
+
+tls:
+  stores:
+  
+    default:
+      defaultCertificate:
+        certFile: /mnt/ddev-global-cache/traefik/certs/default_cert.crt
+        keyFile: /mnt/ddev-global-cache/traefik/certs/default_key.key
+  
