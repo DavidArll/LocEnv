@@ -1,0 +1,337 @@
+body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol";
+    margin: 0;
+    padding: 0;
+    background-color: #f4f7f6;
+    color: #333;
+    line-height: 1.6;
+}
+
+header {
+    background-color: #007bff; /* Acquia Blue or similar */
+    color: white;
+    padding: 1rem 0;
+    text-align: center;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+header h1 {
+    margin: 0;
+    font-size: 1.8rem;
+}
+
+.container {
+    width: 90%;
+    max-width: 1200px;
+    margin: 20px auto;
+    padding: 20px;
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    border-radius: 8px;
+}
+
+.warning {
+    background-color: #fff3cd;
+    color: #856404;
+    padding: 10px 15px;
+    border: 1px solid #ffeeba;
+    border-radius: 4px;
+    margin-bottom: 20px;
+}
+
+.warning p {
+    margin: 0;
+}
+
+.controls {
+    margin-bottom: 20px;
+    padding-bottom: 20px;
+    border-bottom: 1px solid #eee;
+    display: flex;
+    gap: 10px; /* Spacing between buttons */
+    flex-wrap: wrap; /* Allow buttons to wrap on smaller screens */
+}
+
+button {
+    background-color: #007bff;
+    color: white;
+    border: none;
+    padding: 10px 15px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 0.95rem;
+    transition: background-color 0.2s ease-in-out;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+button:disabled {
+    background-color: #cccccc;
+    cursor: not-allowed;
+}
+
+#environments-list table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+#environments-list th, #environments-list td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+#environments-list th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.status-message {
+    padding: 10px;
+    margin-top: 10px;
+    border-radius: 4px;
+    display: none; /* Hidden by default */
+}
+
+.status-message.loading {
+    background-color: #e9ecef;
+    border: 1px solid #ced4da;
+    color: #495057;
+}
+
+.status-message.success {
+    background-color: #d4edda;
+    border: 1px solid #c3e6cb;
+    color: #155724;
+}
+
+.status-message.error, .error {
+    background-color: #f8d7da;
+    border: 1px solid #f5c6cb;
+    color: #721c24;
+}
+
+.cloned {
+    color: green;
+    font-weight: bold;
+}
+
+.not-cloned {
+    color: orange;
+    font-weight: bold;
+}
+
+.actions-cell button, .actions-cell .action-link {
+    margin-right: 5px;
+    margin-bottom: 5px; /* For wrapping */
+    display: inline-block; /* Ensure proper spacing and alignment */
+    padding: 8px 12px;
+    font-size: 0.9rem;
+    text-decoration: none;
+    border-radius: 4px;
+    cursor: pointer;
+    border: none;
+}
+
+.actions-cell .action-link {
+    background-color: #28a745; /* Green for manage/positive actions */
+    color: white;
+}
+
+.actions-cell .action-link:hover {
+    background-color: #218838;
+}
+
+.actions-cell .clone-env-btn {
+    /* Style already defined, but can be adjusted here if needed specifically for this cell */
+}
+
+.disabled-link {
+    pointer-events: none;
+    opacity: 0.65;
+    cursor: not-allowed !important;
+}
+
+
+/* Styles for project_sites.html */
+#sites-list table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+#sites-list th, #sites-list td {
+    border: 1px solid #ddd;
+    padding: 10px;
+    text-align: left;
+    vertical-align: top;
+}
+
+#sites-list th {
+    background-color: #f8f9fa;
+    font-weight: bold;
+}
+
+.status-yes {
+    color: green;
+    font-weight: bold;
+}
+
+.status-no {
+    color: #dc3545; /* Bootstrap danger red */
+    font-weight: bold;
+}
+
+.button-link { /* For styling <a> tags like buttons */
+    display: inline-block;
+    background-color: #6c757d; /* Secondary/gray color */
+    color: white;
+    padding: 10px 15px;
+    border-radius: 4px;
+    text-decoration: none;
+    font-size: 0.95rem;
+    transition: background-color 0.2s ease-in-out;
+}
+
+.button-link:hover {
+    background-color: #5a6268;
+    color: white;
+}
+
+/* Ensure controls on project_sites.html also have spacing */
+.container .controls { /* More specific selector for project_sites.html */
+    display: flex;
+    gap: 10px;
+    align-items: center; /* Vertically align items if they have different heights */
+}
+
+/* Adding a general container class for content if not already there in HTML */
+/* This is useful if you decide to wrap main content area */
+.content-area { /* This class is not used yet, but good to have for future structure */
+    padding: 20px;
+    background-color: #fff;
+    box-shadow: 0 0 10px rgba(0,0,0,0.05);
+    border-radius: 8px;
+}
+
+
+/* Adjustments for smaller screens */
+@media (max-width: 768px) {
+    .controls { /* Applied to both index.html and project_sites.html */
+        flex-direction: column;
+    }
+    .controls button, .controls .button-link { /* Ensure all button-like elements stack */
+        width: 100%;
+        margin-bottom: 10px;
+    }
+    
+    /* Responsive table for environments list */
+    #environments-list table, #environments-list thead, #environments-list tbody, #environments-list th, #environments-list td, #environments-list tr {
+        display: block;
+    }
+    #environments-list thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+    #environments-list tr { border: 1px solid #ccc; margin-bottom: 5px; }
+    #environments-list td {
+        border: none;
+        border-bottom: 1px solid #eee;
+        position: relative;
+        padding-left: 50%;
+        white-space: normal;
+        text-align:left;
+        min-height: 30px; /* Ensure cells are not too short */
+    }
+    #environments-list td:before {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        left: 6px;
+        width: 45%;
+        padding-right: 10px;
+        white-space: nowrap;
+        text-align:left;
+        font-weight: bold;
+    }
+    /* Label data cells for environments list */
+    #environments-list td:nth-of-type(1):before { content: "App Name"; }
+    #environments-list td:nth-of-type(2):before { content: "Environment"; }
+    #environments-list td:nth-of-type(3):before { content: "Status"; }
+    #environments-list td:nth-of-type(4):before { content: "Local Path"; }
+    #environments-list td:nth-of-type(5):before { content: "Actions"; }
+    
+    /* Responsive table for sites list */
+    #sites-list table, #sites-list thead, #sites-list tbody, #sites-list th, #sites-list td, #sites-list tr {
+        display: block;
+    }
+    #sites-list thead tr {
+        position: absolute;
+        top: -9999px;
+        left: -9999px;
+    }
+    #sites-list tr { border: 1px solid #ccc; margin-bottom: 5px; }
+    #sites-list td {
+        border: none;
+        border-bottom: 1px solid #eee;
+        position: relative;
+        padding-left: 50%;
+        white-space: normal;
+        text-align:left;
+        min-height: 30px; /* Ensure cells are not too short */
+    }
+    #sites-list td:before {
+        position: absolute;
+        top: 50%;
+        transform: translateY(-50%);
+        left: 6px;
+        width: 45%;
+        padding-right: 10px;
+        white-space: nowrap;
+        text-align:left;
+        font-weight: bold;
+    }
+    /* Label data cells for sites list */
+    #sites-list td:nth-of-type(1):before { content: "Site Name"; }
+    #sites-list td:nth-of-type(2):before { content: "Remote"; }
+    #sites-list td:nth-of-type(3):before { content: "Local DB"; }
+    #sites-list td:nth-of-type(4):before { content: "Local Files"; }
+    #sites-list td:nth-of-type(5):before { content: "Actions"; }
+
+    .actions-cell button, .actions-cell .action-link {
+        display: block; /* Stack buttons/links in actions cell on mobile */
+        width: calc(100% - 10px); /* Adjust width considering padding/margin */
+        margin-bottom: 8px;
+    }
+    .actions-cell button:last-child, .actions-cell .action-link:last-child {
+        margin-bottom: 0;
+    }
+}
+
+/* For displaying command output in status messages */
+pre.command-output {
+    background-color: #2b2b2b; /* Dark background for terminal-like look */
+    color: #f0f0f0; /* Light text */
+    padding: 10px;
+    border-radius: 4px;
+    margin-top: 8px;
+    white-space: pre-wrap; /* Wrap long lines */
+    word-break: break-all; /* Break long words/paths */
+    font-family: "Menlo", "Monaco", "Consolas", "Liberation Mono", "Courier New", monospace;
+    font-size: 0.85em;
+    max-height: 200px; /* Limit height and make scrollable */
+    overflow-y: auto;
+    border: 1px solid #444;
+}
+
+/* Status message specific class for prompts/info */
+.status-message.info {
+    background-color: #e7f3fe; /* Light blue */
+    border: 1px solid #d0eaff;
+    color: #0c5460;
+}

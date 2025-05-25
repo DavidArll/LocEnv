@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Acquia DDEV Dashboard</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Acquia DDEV Dashboard</h1>
+    </header>
+
+    {% if acquia_config_missing %}
+    <div class="warning">
+        <p><strong>Warning:</strong> Acquia API credentials (ACQUIA_API_KEY, ACQUIA_API_SECRET) are missing from your DDEV global configuration (`$HOME/.ddev/global_config.yaml`). Please add them to enable full functionality.</p>
+    </div>
+    {% endif %}
+
+    <div class="controls">
+        <button id="refreshEnvironments">Refresh Environments List</button>
+        <button id="syncEnvironments">Sync Acquia Environments with Cloud</button>
+    </div>
+    <div id="syncStatus" class="status-message" style="display:none;"></div>
+
+    <h2>Environments</h2>
+    <div id="environments-list">
+        <p>Loading environments...</p>
+    </div>
+
+    <script>
+        const environmentsListDiv = document.getElementById('environments-list');
+        const refreshButton = document.getElementById('refreshEnvironments');
+        const syncButton = document.getElementById('syncEnvironments');
+        const syncStatusDiv = document.getElementById('syncStatus');
+
+        async function loadEnvironments() {
+            environmentsListDiv.innerHTML = '<p>Loading environments...</p>';
+            try {
+                const response = await fetch('/api/environments');
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                
+                if (data.error) {
+                    environmentsListDiv.innerHTML = `<p class="error">${data.error}</p>`;
+                    return;
+                }
+
+                if (data.environments && data.environments.length > 0) {
+                    let html = '<table>';
+                    html += '<tr><th>App Name</th><th>Environment</th><th>Status</th><th>Local Path</th><th>Actions</th></tr>';
+                    data.environments.forEach(env => {
+                        html += `<tr>
+                            <td>${env.app_name || 'N/A'}</td>
+                            <td>${env.environment_type || 'N/A'}</td>
+                            <td>${env.cloned_status ? '<span class="cloned">Cloned</span>' : '<span class="not-cloned">Not Cloned</span>'}</td>
+                            <td>${env.cloned_status && env.local_path ? env.local_path : 'N/A'}</td>
+                            <td class="actions-cell">
+                                <button class="clone-env-btn" data-envname="${env.environment_type}" data-appname="${env.app_name}">
+                                    ${env.cloned_status ? 'Update Environment' : 'Clone Environment'}
+                                </button>
+                                ${env.cloned_status ?
+                                    `<a href="/project/${env.app_name}/${env.environment_type}/sites" class="manage-sites-btn action-link">Manage Sites</a>` :
+                                    ''
+                                }
+                            </td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    environmentsListDiv.innerHTML = html;
+                } else {
+                    environmentsListDiv.innerHTML = '<p>No environments found or an error occurred while fetching them.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading environments:', error);
+                environmentsListDiv.innerHTML = `<p class="error">Error loading environments: ${error.message}</p>`;
+            }
+        }
+
+        async function syncAcquiaEnvironments() {
+            syncButton.disabled = true;
+            syncStatusDiv.style.display = 'block';
+            syncStatusDiv.textContent = 'Syncing... Please wait.';
+            syncStatusDiv.className = 'status-message loading';
+
+            try {
+                const response = await fetch('/api/sync-environments', { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    syncStatusDiv.innerHTML = `<strong>Sync successful:</strong> ${data.message || 'Environments synced.'}`;
+                    if (data.output) {
+                        syncStatusDiv.innerHTML += `<br><pre class="command-output">${data.output}</pre>`;
+                    }
+                    syncStatusDiv.className = 'status-message success';
+                } else {
+                    let errorMessage = `<strong>Sync failed:</strong> ${data.message || 'Unknown error.'}`;
+                    if (data.output) { // Typically stderr for command failures
+                        errorMessage += `<br><strong>Details:</strong><pre class="command-output">${data.output}</pre>`;
+                    }
+                    if (data.stdout) { // If stdout also has info
+                        errorMessage += `<br><strong>Output:</strong><pre class="command-output">${data.stdout}</pre>`;
+                    }
+                    syncStatusDiv.innerHTML = errorMessage;
+                    syncStatusDiv.className = 'status-message error';
+                }
+            } catch (error) {
+                console.error('Error syncing environments:', error);
+                syncStatusDiv.innerHTML = `<strong>Sync failed:</strong> An unexpected error occurred (${error.message}). Check console for details.`;
+                syncStatusDiv.className = 'status-message error';
+            } finally {
+                syncButton.disabled = false;
+                // Keep the message displayed for a few seconds or until next action
+                setTimeout(() => {
+                    if (!syncButton.disabled) { // Don't hide if another sync started
+                         syncStatusDiv.style.display = 'none';
+                    }
+                }, 8000); // Hide after 8 seconds
+                loadEnvironments(); // Refresh the list after sync attempt
+            }
+        }
+
+        refreshButton.addEventListener('click', loadEnvironments);
+        syncButton.addEventListener('click', syncAcquiaEnvironments);
+        environmentsListDiv.addEventListener('click', handleCloneEnvironmentClick); // Event delegation
+
+        async function handleCloneEnvironmentClick(event) {
+            if (!event.target.classList.contains('clone-env-btn')) {
+                return; // Clicked on something else
+            }
+
+            const button = event.target;
+            const envName = button.dataset.envname;
+            // const appName = button.dataset.appname; // Added data-appname to button, can be used if needed
+
+            if (!envName) {
+                console.error('Environment name not found on button.');
+                syncStatusDiv.textContent = 'Error: Environment name missing.';
+                syncStatusDiv.className = 'status-message error';
+                syncStatusDiv.style.display = 'block';
+                return;
+            }
+
+            // Disable all clone/update buttons and manage-sites links to prevent multiple operations
+            document.querySelectorAll('.clone-env-btn').forEach(btn => btn.disabled = true);
+            document.querySelectorAll('.manage-sites-btn').forEach(link => link.classList.add('disabled-link'));
+            syncButton.disabled = true; // Also disable main sync button
+
+            syncStatusDiv.textContent = `Processing environment '${envName}'... This may take a while.`;
+            syncStatusDiv.className = 'status-message loading';
+            syncStatusDiv.style.display = 'block';
+
+            try {
+                const response = await fetch(`/api/clone-environment/${envName}`, { method: 'POST' });
+                const data = await response.json();
+
+                if (response.ok && data.status === 'success') {
+                    syncStatusDiv.innerHTML = `<strong>Successfully processed '${envName}':</strong> ${data.message || data.output || 'Completed.'}`;
+                    if (data.output && (data.message !== data.output)) { // Avoid duplicate if message is output
+                         //syncStatusDiv.innerHTML += `<br><pre class="command-output">${data.output}</pre>`; // Already likely in message
+                    }
+                    syncStatusDiv.className = 'status-message success';
+                } else {
+                    let errorMessage = `<strong>Failed to process '${envName}':</strong> ${data.message || 'Unknown error.'}`;
+                    if (data.output) { // Typically stderr
+                        errorMessage += `<br><strong>Details:</strong><pre class="command-output">${data.output}</pre>`;
+                    }
+                    if (data.stdout) {
+                        errorMessage += `<br><strong>Output:</strong><pre class="command-output">${data.stdout}</pre>`;
+                    }
+                    syncStatusDiv.innerHTML = errorMessage;
+                    syncStatusDiv.className = 'status-message error';
+                }
+            } catch (error) {
+                console.error(`Error processing environment '${envName}':`, error);
+                syncStatusDiv.innerHTML = `<strong>Failed to process '${envName}':</strong> An unexpected error occurred (${error.message}). Check console.`;
+                syncStatusDiv.className = 'status-message error';
+            } finally {
+                // Re-enable buttons
+                document.querySelectorAll('.clone-env-btn').forEach(btn => btn.disabled = false);
+                syncButton.disabled = false;
+                
+                // Keep the message displayed for a few seconds
+                setTimeout(() => {
+                    // Check if another operation hasn't started displaying its own message
+                    if (syncStatusDiv.textContent.includes(envName)) { 
+                        syncStatusDiv.style.display = 'none';
+                    }
+                }, 10000); // Hide after 10 seconds
+
+                loadEnvironments(); // Refresh the list
+            }
+        }
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', loadEnvironments);
+    </script>
+</body>
+</html>

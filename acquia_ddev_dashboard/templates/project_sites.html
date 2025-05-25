@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Manage Sites - {{ app_name }} ({{ env_type }})</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+    <header>
+        <h1>Manage Sites for: <strong>{{ app_name }}</strong> (Environment: {{ env_type }})</h1>
+        <p>Project Path: <code>{{ project_path }}</code></p>
+    </header>
+
+    <div class="container">
+        <div class="controls">
+            <a href="{{ url_for('index') }}" class="button-link">&laquo; Back to Environments List</a>
+            <button id="refreshSitesList">Refresh Sites List</button>
+        </div>
+        <div id="site-operation-status" class="status-message" style="display:none;"></div>
+
+        <h2>Sites</h2>
+        <div id="sites-list">
+            <p>Loading sites...</p>
+        </div>
+    </div>
+
+    <script>
+        const sitesListDiv = document.getElementById('sites-list');
+        const refreshSitesButton = document.getElementById('refreshSitesList');
+        const siteOperationStatusDiv = document.getElementById('site-operation-status');
+        
+        // These will be injected by Flask from the URL parameters
+        const currentAppName = "{{ app_name }}";
+        const currentEnvType = "{{ env_type }}";
+        // const currentProjectPath = "{{ project_path }}"; // Available if needed
+        // const currentEnvironmentId = "{{ environment_id }}"; // Available if needed
+
+        async function loadProjectSites() {
+            sitesListDiv.innerHTML = '<p>Loading sites...</p>';
+            siteOperationStatusDiv.style.display = 'none'; // Hide previous status
+
+            try {
+                const response = await fetch(`/api/project/${currentAppName}/${currentEnvType}/list-sites`);
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+                }
+                const data = await response.json();
+                
+                if (data.error) {
+                    sitesListDiv.innerHTML = `<p class="error">${data.error}</p>`;
+                    return;
+                }
+
+                if (data.sites && data.sites.length > 0) {
+                    let html = '<table>';
+                    html += '<tr><th>Site Name</th><th>Remote Status</th><th>Local DB Status</th><th>Local Files Status</th><th>Actions</th></tr>';
+                    data.sites.forEach(site => {
+                        html += `<tr>
+                            <td>${site.site_name}</td>
+                            <td>${site.is_remote ? '<span class="status-yes">Yes</span>' : '<span class="status-no">No</span>'}</td>
+                            <td>${site.status_db === 'Cloned' ? `<span class="status-yes">${site.status_db}</span>` : `<span class="status-no">${site.status_db}</span>`}</td>
+                            <td>${site.status_files === 'Exists' ? `<span class="status-yes">${site.status_files}</span>` : `<span class="status-no">${site.status_files}</span>`}</td>
+                            <td>${getSiteActions(site)}</td>
+                        </tr>`;
+                    });
+                    html += '</table>';
+                    sitesListDiv.innerHTML = html;
+                } else {
+                    sitesListDiv.innerHTML = '<p>No sites found for this environment, or an error occurred. Check DDEV logs if `acquia-get-sites` is failing.</p>';
+                }
+            } catch (error) {
+                console.error('Error loading project sites:', error);
+                sitesListDiv.innerHTML = `<p class="error">Error loading sites: ${error.message}</p>`;
+            }
+        }
+
+        function getSiteActions(site) {
+            let actionsHtml = '';
+            const commonDataAttrs = `data-sitename="${site.site_name}" data-appname="${currentAppName}" data-envtype="${currentEnvType}"`;
+
+            if (site.is_remote && (site.status_db !== 'Cloned' || site.status_files !== 'Exists')) {
+                actionsHtml += `<button class="site-action-btn clone-site-btn" ${commonDataAttrs}>Clone Site</button>`;
+            } else if (site.is_remote && site.is_local) { // is_local implies both DB and files are present
+                actionsHtml += `<button class="site-action-btn resync-site-btn" ${commonDataAttrs}>Re-sync Site</button> `;
+                // Add other actions like pull/push if they are ever implemented
+                // actionsHtml += `<button class="site-action-btn" ${commonDataAttrs} data-action="pull-db" disabled title="Future: Pull DB">Pull DB</button> `;
+                // actionsHtml += `<button class="site-action-btn" ${commonDataAttrs} data-action="pull-files" disabled title="Future: Pull Files">Pull Files</button>`;
+            } else if (!site.is_remote && site.is_local) {
+                actionsHtml += `<span>Local only (no remote counterpart)</span>`;
+            } else {
+                 actionsHtml += `<span>N/A</span>`;
+            }
+            return actionsHtml || 'No specific actions available';
+        }
+        
+        async function handleSiteActionClick(event) {
+            const button = event.target.closest('.site-action-btn');
+            if (!button) return; // Click wasn't on a site action button or its descendant
+
+            const siteName = button.dataset.sitename;
+            const appName = button.dataset.appname;
+            const envType = button.dataset.envtype;
+            
+            let actionEndpoint = '';
+            let loadingMessage = '';
+
+            if (button.classList.contains('clone-site-btn')) {
+                actionEndpoint = `/api/project/${appName}/${envType}/clone-site/${siteName}`;
+                loadingMessage = `Cloning site '${siteName}' for ${appName}/${envType}... This may take a while.`;
+            } else if (button.classList.contains('resync-site-btn')) {
+                actionEndpoint = `/api/project/${appName}/${envType}/resync-site/${siteName}`;
+                loadingMessage = `Initiating re-sync for site '${siteName}' (${appName}/${envType})... Check output for prompts.`;
+            } else {
+                return; // Not a recognized action
+            }
+
+            if (!siteName || !appName || !envType) {
+                console.error('Missing data attributes on button:', button);
+                siteOperationStatusDiv.textContent = 'Error: Missing required information to perform action.';
+                siteOperationStatusDiv.className = 'status-message error';
+                siteOperationStatusDiv.style.display = 'block';
+                return;
+            }
+
+            document.querySelectorAll('.site-action-btn').forEach(btn => btn.disabled = true);
+            refreshSitesButton.disabled = true;
+
+            siteOperationStatusDiv.innerHTML = `<pre>${loadingMessage}</pre>`; // Use <pre> for potentially long output
+            siteOperationStatusDiv.className = 'status-message loading';
+            siteOperationStatusDiv.style.display = 'block';
+
+            try {
+                const response = await fetch(actionEndpoint, { method: 'POST' });
+                const data = await response.json();
+
+                let statusClass = 'error';
+                let displayMessage = `<strong>Operation for '${siteName}' failed.</strong>`;
+
+                if (response.ok) {
+                    switch (data.status) {
+                        case 'success':
+                            statusClass = 'success';
+                            displayMessage = `<strong>Operation for '${siteName}' successful.</strong>`;
+                            if (data.message) displayMessage += `<br>${data.message}`;
+                            if (data.output) displayMessage += `<br><pre class="command-output">${data.output}</pre>`;
+                            break;
+                        case 'success_with_prompts':
+                            statusClass = 'info'; // Or 'warning'
+                            displayMessage = `<strong>Operation for '${siteName}' completed with prompts/warnings.</strong>`;
+                            if (data.message) displayMessage += `<br>${data.message}`;
+                            if (data.output) displayMessage += `<br><strong>Command Output:</strong><pre class="command-output">${data.output}</pre>`;
+                            if (data.stdout && data.stdout !== data.output) displayMessage += `<br><strong>STDOUT:</strong><pre class="command-output">${data.stdout}</pre>`;
+                            break;
+                        default: // Includes 'error' status from server
+                            statusClass = 'error';
+                            displayMessage = `<strong>Operation for '${siteName}' failed.</strong>`;
+                            if (data.message) displayMessage += `<br>${data.message}`;
+                            if (data.output) displayMessage += `<br><strong>Details (stderr):</strong><pre class="command-output">${data.output}</pre>`;
+                            if (data.stdout) displayMessage += `<br><strong>Output (stdout):</strong><pre class="command-output">${data.stdout}</pre>`;
+                            break;
+                    }
+                } else { // HTTP error (e.g., 404, 500)
+                    statusClass = 'error';
+                    displayMessage = `<strong>Operation for '${siteName}' failed.</strong><br>HTTP Status: ${response.status}.`;
+                    if (data.message) displayMessage += `<br>${data.message}`;
+                    if (data.output) displayMessage += `<br><strong>Details:</strong><pre class="command-output">${data.output}</pre>`;
+                }
+                
+                siteOperationStatusDiv.innerHTML = displayMessage;
+                siteOperationStatusDiv.className = `status-message ${statusClass}`;
+
+            } catch (error) {
+                console.error(`Error during site operation for '${siteName}':`, error);
+                siteOperationStatusDiv.innerHTML = `<strong>Operation for '${siteName}' failed.</strong><br>An unexpected error occurred: ${error.message}. Check console.`;
+                siteOperationStatusDiv.className = 'status-message error';
+            } finally {
+                document.querySelectorAll('.site-action-btn').forEach(btn => btn.disabled = false);
+                refreshSitesButton.disabled = false;
+                
+                // Don't auto-hide message for re-sync as user needs to see prompts.
+                // For clone, auto-hide might still be okay.
+                if (!button.classList.contains('resync-site-btn')) {
+                    setTimeout(() => {
+                        if (siteOperationStatusDiv.textContent.includes(siteName) && !refreshSitesButton.disabled) {
+                             siteOperationStatusDiv.style.display = 'none';
+                        }
+                    }, 12000); // Hide after 12 seconds if no new operation
+                }
+                loadProjectSites();
+            }
+        }
+
+        sitesListDiv.addEventListener('click', handleSiteActionClick);
+        refreshSitesButton.addEventListener('click', loadProjectSites);
+
+        // Initial load
+        document.addEventListener('DOMContentLoaded', loadProjectSites);
+    </script>
+</body>
+</html>
