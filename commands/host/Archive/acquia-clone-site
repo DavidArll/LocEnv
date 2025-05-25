@@ -1,0 +1,325 @@
+#!/usr/bin/env bash
+
+## Description: Clone a specific site from Acquia Cloud into the local DDEV environment with proper multisite setup
+## Usage: acquia-clone-site [site_name]
+## Example: ddev acquia-clone-site coorslight
+## CanRunGlobally: false
+
+set -e
+
+# 📌 Read Acquia API configuration from global_config.yaml
+GLOBAL_CONFIG="$HOME/.ddev/global_config.yaml"
+if [ ! -f "$GLOBAL_CONFIG" ]; then
+    echo "❌ Error: global_config.yaml not found."
+    exit 1
+fi
+
+# Extract API keys from config
+ACQUIA_API_KEY=$(grep "ACQUIA_API_KEY=" "$GLOBAL_CONFIG" | sed 's/.*ACQUIA_API_KEY=\(.*\)$/\1/')
+ACQUIA_API_SECRET=$(grep "ACQUIA_API_SECRET=" "$GLOBAL_CONFIG" | sed 's/.*ACQUIA_API_SECRET=\(.*\)$/\1/')
+PROJECT_ID=$(grep "ACQUIA_PROJECT_ID=" "$GLOBAL_CONFIG" | sed 's/.*ACQUIA_PROJECT_ID=\(.*\)$/\1/')
+
+# 📌 Ensure script is run inside a valid DDEV project
+if [[ ! -f ".ddev/acquia-environment.json" ]]; then
+    echo "❌ Error: This command must be run inside a DDEV project directory."
+    exit 1
+fi
+
+# 📌 Read configuration from acquia-environment.json
+JSON_FILE=".ddev/acquia-environment.json"
+ENVIRONMENT_ID=$(jq -r '.environment_id' "$JSON_FILE")
+APP_NAME=$(jq -r '.application_name' "$JSON_FILE")
+ENVIRONMENT_TYPE=$(jq -r '.environment_type' "$JSON_FILE")
+
+# 📌 Validate input arguments
+if [[ -z "$1" ]]; then
+  echo "❌ Error: You must specify a site (e.g., ddev acquia-clone-site coorslight)"
+  exit 1
+fi
+SITE_NAME=$1
+
+# 📌 Validate if the site exists in the JSON file
+SITE_DB_INFO=$(jq -r --arg SITE "$SITE_NAME" '.databases[] | select(.name == $SITE)' "$JSON_FILE")
+if [[ -z "$SITE_DB_INFO" ]]; then
+  echo "❌ Error: Site '$SITE_NAME' not found in the environment."
+  exit 1
+fi
+
+DB_NAME=$(echo "$SITE_DB_INFO" | jq -r '.name')
+
+echo "✅ Site '$DB_NAME' found in environment. Preparing to clone..."
+echo "📌 Database Name: $DB_NAME"
+
+# 📌 Get authentication token
+TOKEN=$(curl -s -X POST "https://accounts.acquia.com/api/auth/oauth/token" \
+  -d "client_id=$ACQUIA_API_KEY" \
+  -d "client_secret=$ACQUIA_API_SECRET" \
+  -d "grant_type=client_credentials" | jq -r '.access_token')
+
+if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+  echo "❌ Error: Could not retrieve authentication token."
+  exit 1
+fi
+
+# 📌 Fetch the latest available backup
+echo "🔄 Fetching list of available backups for '$DB_NAME'..."
+BACKUP_DATA=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENVIRONMENT_ID/databases/$DB_NAME/backups" \
+  -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+
+# 📌 Ensure there are backups before proceeding
+if [[ $(echo "$BACKUP_DATA" | jq -r '._embedded.items | length') -eq 0 ]]; then
+    echo "❌ No backups found for database '$DB_NAME'."
+    exit 1
+fi
+
+# 📌 Get the latest backup for today's date
+LATEST_BACKUP=$(echo "$BACKUP_DATA" | jq -r '
+    ._embedded.items
+    | map(select(.started_at | startswith("'"$(date -u +"%Y-%m-%d")"'"))) 
+    | max_by(.started_at)')
+
+# 📌 Ensure there is a valid backup to use
+if [[ "$LATEST_BACKUP" == "null" ]]; then
+    echo "⚠️ No recent backups found for today. Using the most recent available backup..."
+    LATEST_BACKUP=$(echo "$BACKUP_DATA" | jq -r '._embedded.items | max_by(.started_at)')
+fi
+
+BACKUP_ID=$(echo "$LATEST_BACKUP" | jq -r '.id')
+DOWNLOAD_URL=$(echo "$LATEST_BACKUP" | jq -r '._links.download.href')
+
+if [[ -z "$BACKUP_ID" || "$BACKUP_ID" == "null" || -z "$DOWNLOAD_URL" || "$DOWNLOAD_URL" == "null" ]]; then
+    echo "❌ Error: Could not retrieve a valid backup for '$DB_NAME'."
+    exit 1
+fi
+
+echo "✅ Found latest backup: ID $BACKUP_ID"
+echo "📥 Downloading backup from $DOWNLOAD_URL..."
+curl -L -o "$DB_NAME.sql.gz" -X GET "$DOWNLOAD_URL" \
+  -H "Authorization: Bearer $TOKEN" -H "Accept: application/octet-stream"
+
+echo "✅ Backup downloaded successfully as '$DB_NAME.sql.gz'."
+echo "🔄 Importando base de datos en DDEV..."
+ddev import-db --database=$DB_NAME --file="$DB_NAME.sql.gz"
+
+if [ $? -ne 0 ]; then
+    echo "❌ Error al importar la base de datos"
+    exit 1
+fi
+
+# Verificación básica de la base de datos
+echo "🔍 Verificando la importación de la base de datos..."
+DB_CHECK=$(ddev mysql -e "USE $DB_NAME; SHOW TABLES;" 2>&1)
+if [[ $? -eq 0 ]]; then
+    TABLE_COUNT=$(echo "$DB_CHECK" | wc -l)
+    if [[ $TABLE_COUNT -gt 1 ]]; then
+        echo "✅ Base de datos '$DB_NAME' importada correctamente con $(($TABLE_COUNT-1)) tablas"
+        # Borrar el archivo de backup después de una importación exitosa
+        rm -f "$DB_NAME.sql.gz"
+        echo "🗑️ Archivo de backup '$DB_NAME.sql.gz' eliminado"
+    else
+        echo "❌ Error: La base de datos está vacía"
+        exit 1
+    fi
+else
+    echo "❌ Error al verificar la base de datos"
+    exit 1
+fi
+
+# 📌 Ensure multisite configuration
+SITES_PATH="docroot/sites"
+SETTINGS_PATH="$SITES_PATH/$DB_NAME/settings.php"
+INC_PATH="$SITES_PATH/$DB_NAME/settings.ddev.inc"
+
+# Create sites directory if it doesn't exist
+mkdir -p "$SITES_PATH/$DB_NAME"
+
+# Create .inc file with database configuration
+cat > "$INC_PATH" << EOL
+<?php
+/**
+ * Database configuration for $DB_NAME site
+ * Local DDEV environment only
+ */
+
+if (!getenv('IS_DDEV_PROJECT')) {
+    return;
+}
+
+\$databases['default']['default'] = [
+  'database' => '$DB_NAME',
+  'username' => 'db',
+  'password' => 'db',
+  'host' => 'ddev-millercoorsd8-dev-db',
+  'port' => '3306',
+  'driver' => 'mysql',
+  'prefix' => '',
+  'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+  'collation' => 'utf8mb4_general_ci',
+];
+
+// Set the hash variable
+\$settings['hash_salt'] = '$(openssl rand -base64 48)';
+EOL
+
+chmod 644 "$INC_PATH"
+
+# Create or update settings.php
+if [[ ! -f "$SETTINGS_PATH" ]]; then
+    cat > "$SETTINGS_PATH" << EOL
+<?php
+/**
+ * Settings file for $DB_NAME site
+ */
+
+\$settings['hash_salt'] = '$(openssl rand -base64 48)';
+\$settings['container_yamls'][] = DRUPAL_ROOT . '/sites/default/services.yml';
+
+// Load local development overrides if they exist and we're in DDEV
+if (getenv('IS_DDEV_PROJECT') == 'true') {
+    \$inc_file = __DIR__ . '/settings.ddev.inc';
+    if (file_exists(\$inc_file)) {
+        require \$inc_file;
+    }
+}
+
+\$settings['config_sync_directory'] = '../config/sync';
+EOL
+    chmod 644 "$SETTINGS_PATH"
+else
+    # Add include if it doesn't exist
+    INCLUDE_LINE="if (getenv('IS_DDEV_PROJECT') == 'true') { \$inc_file = __DIR__ . '/settings.ddev.inc'; if (file_exists(\$inc_file)) { require \$inc_file; } }"
+    if ! grep -q "settings.ddev.inc" "$SETTINGS_PATH"; then
+        echo "$INCLUDE_LINE" >> "$SETTINGS_PATH"
+    fi
+fi
+
+# 📌 Update sites.local.php
+SITES_LOCAL_PATH="$SITES_PATH/sites.local.php"
+if [[ ! -f "$SITES_LOCAL_PATH" ]]; then
+    echo "<?php" > "$SITES_LOCAL_PATH"
+fi
+
+SITE_ENTRY="\$sites['$DB_NAME.ddev.site'] = '$DB_NAME';"
+if ! grep -q "\$sites\['$DB_NAME.ddev.site'\]" "$SITES_LOCAL_PATH"; then
+    echo "$SITE_ENTRY" >> "$SITES_LOCAL_PATH"
+fi
+
+# 📌 Ensure sites.php includes sites.local.php
+SITES_PHP="$SITES_PATH/sites.php"
+if [[ ! -f "$SITES_PHP" ]]; then
+    echo "<?php" > "$SITES_PHP"
+fi
+
+if ! grep -q "sites.local.php" "$SITES_PHP"; then
+    echo "if (file_exists(__DIR__ . '/sites.local.php')) {" >> "$SITES_PHP"
+    echo "  include __DIR__ . '/sites.local.php';" >> "$SITES_PHP"
+    echo "}" >> "$SITES_PHP"
+fi
+
+# 📌 Update config.yaml with additional hostname and database
+CONFIG_FILE=".ddev/config.yaml"
+TEMP_FILE=".ddev/config.yaml.tmp"
+
+# Update config.yaml to add hostname and database
+awk -v site="$DB_NAME" '
+BEGIN {
+    in_database_block = 0
+    hostname_added = 0
+    database_added = 0
+}
+{
+    # Detect additional_hostnames block
+    if ($0 ~ /^additional_hostnames:/) {
+        print $0
+        if (!hostname_added) {
+            if (!seen[site]++) {
+                print "  - " site
+            }
+            hostname_added = 1
+        }
+        while (getline && $0 ~ /^  -/) {
+            if ($0 != "  - " site) {
+                print $0  # Keep existing hostnames
+            }
+        }
+        if ($0 !~ /^  -/) print $0
+        next
+    }
+    # Detect database block
+    else if ($0 ~ /^database:/) {
+        print $0
+        in_database_block = 1
+        next
+    }
+    # Inside the database block
+    else if (in_database_block) {
+        if ($0 ~ /^[^ ]/) {
+            # Exit the database block
+            if (!database_added) {
+                print "    additional_databases:"
+                print "        - " site
+                database_added = 1
+            }
+            in_database_block = 0
+        }
+        else if ($0 ~ /^    additional_databases:/) {
+            print $0
+            if (!seen_db[site]++) {
+                print "        - " site
+            }
+            database_added = 1
+            while (getline && $0 ~ /^        -/) {
+                if ($0 != "        - " site) {
+                    print $0  # Keep existing databases
+                }
+            }
+            if ($0 !~ /^        -/) print $0
+            next
+        }
+    }
+    print $0
+}
+END {
+    if (!hostname_added) {
+        print "additional_hostnames:"
+        print "  - " site
+    }
+    if (in_database_block && !database_added) {
+        print "    additional_databases:"
+        print "        - " site
+    }
+}' "$CONFIG_FILE" > "$TEMP_FILE"
+
+mv "$TEMP_FILE" "$CONFIG_FILE"
+
+# 📌 Update local.site.yml with new aliases
+LOCAL_SITE_YML="drush/sites/loc.site.yml"
+
+# Ensure the file exists
+touch "$LOCAL_SITE_YML"
+
+# Ensure the file ends with a newline
+if [[ -s "$LOCAL_SITE_YML" ]]; then
+    tail -c1 "$LOCAL_SITE_YML" | read -r _ || echo >> "$LOCAL_SITE_YML"
+fi
+
+# Check if the alias already exists
+if ! grep -q "$DB_NAME:" "$LOCAL_SITE_YML"; then
+    # Add the new alias in the correct YAML format
+    echo "$DB_NAME:" >> "$LOCAL_SITE_YML"
+    echo "  root: /var/www/html/docroot" >> "$LOCAL_SITE_YML"
+    echo "  uri: '$DB_NAME.ddev.site'" >> "$LOCAL_SITE_YML"
+    echo "Alias for $DB_NAME added to $LOCAL_SITE_YML"
+else
+    echo "Alias for $DB_NAME already exists in $LOCAL_SITE_YML"
+fi
+
+# 📌 Restart DDEV to apply changes
+echo "🚀 Restarting DDEV to apply changes..."
+ddev restart
+
+echo "Pulling files for $DB_NAME..."
+ 
+ddev drush @loc.$DB_NAME rsync @$DB_NAME.$ENVIRONMENT_TYPE:%files/ docroot/sites/$DB_NAME/files/ -y
+
+echo "✅ Multisite setup completed! Access the site at: https://$DB_NAME.ddev.site"

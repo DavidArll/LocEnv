@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+set -e
+
+# Configuración de API de Acquia
+ACQUIA_API_KEY=$(ddev exec printenv ACQUIA_API_KEY)
+ACQUIA_API_SECRET=$(ddev exec printenv ACQUIA_API_SECRET)
+PROJECT_ID=$(ddev exec printenv ACQUIA_PROJECT_ID)
+
+
+# Obtener token de autenticación desde Acquia Cloud API
+echo "🔄 Obteniendo token de autenticación..."
+TOKEN_RESPONSE=$(curl -s -X POST "https://accounts.acquia.com/api/auth/oauth/token" \
+  -d "client_id=$ACQUIA_API_KEY" \
+  -d "client_secret=$ACQUIA_API_SECRET" \
+  -d "grant_type=client_credentials")
+
+TOKEN=$(echo $TOKEN_RESPONSE | jq -r '.access_token')
+
+if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+  echo "❌ Error: No se pudo obtener el token de autenticación."
+  exit 1
+fi
+
+echo "✅ Token obtenido exitosamente."
+
+# Obtener información del proyecto en Acquia
+echo "🔄 Obteniendo información del proyecto en Acquia..."
+PROJECT_RESPONSE=$(curl -s -X GET "https://cloud.acquia.com/api/applications/$PROJECT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+
+PROJECT_NAME=$(echo "$PROJECT_RESPONSE" | jq -r '.name')
+PROJECT_HOSTING=$(echo "$PROJECT_RESPONSE" | jq -r '.hosting')
+PROJECT_SUBSCRIPTION=$(echo "$PROJECT_RESPONSE" | jq -r '.subscription')
+
+echo "🔹 Proyecto: $PROJECT_NAME"
+echo "🔹 Tipo de hosting: $PROJECT_HOSTING"
+echo "🔹 Suscripción: $PROJECT_SUBSCRIPTION"
+
+# Obtener lista de entornos disponibles (dev, test, prod)
+echo "🔄 Obteniendo lista de entornos..."
+ENVIRONMENTS_RESPONSE=$(curl -s -X GET "https://cloud.acquia.com/api/applications/$PROJECT_ID/environments" \
+  -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+
+ENVIRONMENTS=$(echo "$ENVIRONMENTS_RESPONSE" | jq -r '.data[] | "\(.id) - \(.label) - \(.domain)"')
+
+if [[ -z "$ENVIRONMENTS" ]]; then
+  echo "❌ No se encontraron entornos disponibles."
+  exit 1
+fi
+
+echo "✅ Entornos disponibles en Acquia:"
+echo "$ENVIRONMENTS"
+
+# Obtener sitios en cada entorno
+echo "🔄 Obteniendo sitios en cada entorno..."
+for ENV_ID in $(echo "$ENVIRONMENTS" | awk '{print $1}'); do
+  SITE_RESPONSE=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENV_ID" \
+    -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+
+  SITE_NAME=$(echo "$SITE_RESPONSE" | jq -r '.name')
+  SITE_URL=$(echo "$SITE_RESPONSE" | jq -r '.domain')
+
+  echo "🔹 Sitio: $SITE_NAME"
+  echo "🔹 URL: $SITE_URL"
+done
+
+echo "✅ Prueba de conexión a la API de Acquia completada."

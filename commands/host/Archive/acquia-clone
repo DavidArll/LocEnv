@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+
+## Description: Clone an Acquia environment into a new DDEV project (Optimized)
+## Usage: acquia-clone [environment]
+## Example: ddev acquia-clone dev
+## CanRunGlobally: true
+
+set -e
+
+# 📌 Read Acquia API configuration from global_config.yaml
+GLOBAL_CONFIG="$HOME/.ddev/global_config.yaml"
+if [ ! -f "$GLOBAL_CONFIG" ]; then
+    echo "❌ Error: global_config.yaml not found."
+    exit 1
+fi
+
+# Extract API keys from config
+ACQUIA_API_KEY=$(grep "ACQUIA_API_KEY=" "$GLOBAL_CONFIG" | sed 's/.*ACQUIA_API_KEY=\(.*\)$/\1/')
+ACQUIA_API_SECRET=$(grep "ACQUIA_API_SECRET=" "$GLOBAL_CONFIG" | sed 's/.*ACQUIA_API_SECRET=\(.*\)$/\1/')
+PROJECT_ID=$(grep "ACQUIA_PROJECT_ID=" "$GLOBAL_CONFIG" | sed 's/.*ACQUIA_PROJECT_ID=\(.*\)$/\1/')
+
+# 📌 Validate arguments
+if [[ -z "$1" ]]; then
+  echo "❌ Error: You must specify an environment (e.g., dev, test, prod, ode143)"
+  exit 1
+fi
+ENV_NAME=$1
+
+# 📌 Define paths
+PROJECT_PATH=~/Sites/ddev
+PROJECT_DIR=""
+APP_NAME=""
+JSON_FILE=""
+
+# 📌 Check if a previous JSON configuration exists
+if [[ -d "$PROJECT_PATH" ]]; then
+    for DIR in "$PROJECT_PATH"/*; do
+        if [[ -d "$DIR/.ddev" && -f "$DIR/.ddev/acquia-environment.json" ]]; then
+            if jq -e --arg ENV_NAME "$ENV_NAME" '.environment_id and .application_name and .branch and .repository and .ssh_url | select(. != null) and (.environment_id != null) and (.application_name != null) and (.branch != null) and (.repository != null) and (.ssh_url != null)' "$DIR/.ddev/acquia-environment.json" >/dev/null; then
+                APP_NAME=$(jq -r '.application_name' "$DIR/.ddev/acquia-environment.json")
+                ENVIRONMENT_ID=$(jq -r '.environment_id' "$DIR/.ddev/acquia-environment.json")
+                BRANCH=$(jq -r '.branch' "$DIR/.ddev/acquia-environment.json")
+                REPO_URL=$(jq -r '.repository' "$DIR/.ddev/acquia-environment.json")
+                SSH_URL=$(jq -r '.ssh_url' "$DIR/.ddev/acquia-environment.json")
+                JSON_FILE="$DIR/.ddev/acquia-environment.json"
+                PROJECT_DIR="$DIR"
+                break
+            fi
+        fi
+    done
+fi
+
+# 📌 If no valid JSON data, fetch environment details from Acquia
+if [[ -z "$APP_NAME" || -z "$ENVIRONMENT_ID" ]]; then
+    echo "🔄 Fetching environment details from Acquia..."
+
+    # Get authentication token
+    TOKEN=$(curl -s -X POST "https://accounts.acquia.com/api/auth/oauth/token" \
+      -d "client_id=$ACQUIA_API_KEY" \
+      -d "client_secret=$ACQUIA_API_SECRET" \
+      -d "grant_type=client_credentials" | jq -r '.access_token')
+
+    if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+      echo "❌ Error: Failed to retrieve authentication token."
+      exit 1
+    fi
+
+    # Fetch environment data
+    ENVIRONMENT_DATA=$(curl -s -X GET "https://cloud.acquia.com/api/applications/$PROJECT_ID/environments" \
+      -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" | jq -r --arg ENV_NAME "$ENV_NAME" '._embedded.items[] | select(.name == $ENV_NAME)')
+
+    ENVIRONMENT_ID=$(echo "$ENVIRONMENT_DATA" | jq -r '.id')
+    APP_NAME=$(echo "$ENVIRONMENT_DATA" | jq -r '.application.name' | tr -d ' ' | tr '[:upper:]' '[:lower:]')
+    BRANCH=$(echo "$ENVIRONMENT_DATA" | jq -r '.vcs.path')
+    REPO_URL=$(echo "$ENVIRONMENT_DATA" | jq -r '.vcs.url')
+    SSH_URL=$(echo "$ENVIRONMENT_DATA" | jq -r '.ssh_url')
+
+    if [[ -z "$ENVIRONMENT_ID" ]]; then
+      echo "❌ Error: Environment '$ENV_NAME' not found."
+      exit 1
+    fi
+
+    # 📌 Define project directory now that we have APP_NAME
+    PROJECT_DIR="${PROJECT_PATH}/${APP_NAME}-${ENV_NAME}"
+    JSON_FILE="${PROJECT_DIR}/.ddev/acquia-environment.json"
+
+    # 📌 Ensure JSON file exists and is populated
+    mkdir -p "$(dirname "$JSON_FILE")"
+    echo "📄 Storing environment details..."
+    jq -n \
+      --arg environment_id "$ENVIRONMENT_ID" \
+      --arg application_name "$APP_NAME" \
+      --arg branch "$BRANCH" \
+      --arg repository "$REPO_URL" \
+      --arg ssh_url "$SSH_URL" \
+      '{environment_id: $environment_id, application_name: $application_name, branch: $branch, repository: $repository, ssh_url: $ssh_url, databases: []}' > "$JSON_FILE"
+fi
+
+echo "✅ Environment found: $ENVIRONMENT_ID ($ENV_NAME)"
+echo "📌 Application: $APP_NAME"
+echo "📌 Current branch: $BRANCH"
+echo "📌 Repository: $REPO_URL"
+echo "📌 SSH URL: $SSH_URL"
+
+# 📌 Clone the repository if it does not exist
+if [[ ! -d "$PROJECT_DIR/.git" ]]; then
+  echo "🔄 Cloning repository into '$PROJECT_DIR'..."
+  git clone --branch "$BRANCH" "$REPO_URL" "$PROJECT_DIR"
+else
+  echo "⚠️ Repository already exists, checking for updates..."
+  cd "$PROJECT_DIR"
+  CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+  if [[ "$CURRENT_BRANCH" != "$BRANCH" ]]; then
+    echo "🔄 Switching branch $CURRENT_BRANCH → $BRANCH..."
+    git fetch origin
+    git checkout "$BRANCH"
+    git pull origin "$BRANCH"
+  else
+    echo "✅ Already on the correct branch: $BRANCH"
+  fi
+fi
+
+# 📌 Enter the project directory
+cd "$PROJECT_DIR"
+
+# 📌 Verify if DDEV is already configured
+if [[ ! -f ".ddev/config.yaml" ]]; then
+  echo "🚀 Configuring DDEV for Drupal 10..."
+  ddev config --project-type=drupal10 --php-version=8.3 --docroot=docroot
+fi
+
+# 📌 Retrieve databases only if missing
+if [[ $(jq '.databases | length' "$JSON_FILE") -eq 0 ]]; then
+    echo "🔄 Fetching environment databases..."
+    DB_RESPONSE=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENVIRONMENT_ID/databases" \
+      -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+
+    if [[ $(echo "$DB_RESPONSE" | jq -r '._embedded.items | length') -eq 0 ]]; then
+        echo "⚠️ No databases found for environment '$ENV_NAME'."
+        DBS="[]"
+    else
+        DBS=$(echo "$DB_RESPONSE" | jq -c '._embedded.items')
+
+        # 📌 Update JSON file with new databases
+        jq --argjson dbs "$DBS" '.databases = $dbs' "$JSON_FILE" > temp.json && mv temp.json "$JSON_FILE"
+        echo "📄 Database list updated in JSON."
+    fi
+else
+    echo "✅ Database list is already stored in JSON."
+fi
+
+# 📌 Start DDEV if it is not already running
+if ! ddev describe >/dev/null 2>&1; then
+  echo "🚀 Starting DDEV..."
+  ddev start
+fi
+
+echo "✅ Cloning and configuration complete. You can access the project at: $PROJECT_DIR"

@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+## Description: Pull from Acquia (db or files)
+## Usage: ddev pull <db|files> <environment> <site> [--yes]
+## CanRunGlobally: false
+
+ACTION=$1
+ENVIRONMENT=$2
+SITE=$3
+FLAG=$4
+
+if [[ -z "$ACTION" || -z "$ENVIRONMENT" || -z "$SITE" ]]; then
+  echo "❌ Usage: ddev pull <db|files> <environment> <site> [--yes]"
+  exit 1
+fi
+
+case "$ACTION" in
+  db)
+    echo "🔄 Pulling DB for site '$SITE' from environment '$ENVIRONMENT'..."
+    ddev pull-db "$ENVIRONMENT" "$SITE" "$FLAG"
+    ;;
+  files)
+    echo "🔄 Pulling files for site '$SITE' from environment '$ENVIRONMENT'..."
+    ddev pull-files "$ENVIRONMENT" "$SITE" "$FLAG"
+    ;;
+  *)
+    echo "❌ Unknown action '$ACTION'. Use 'db' or 'files'."
+    exit 1
+    ;;
+esac

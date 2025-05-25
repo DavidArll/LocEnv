@@ -1,0 +1,309 @@
+#!/usr/bin/env bash
+
+## Description: Clone a specific site from Acquia Cloud into the local DDEV environment with proper multisite setup.
+## Usage: acquia-clone-site-1 [site_name]
+## Example: ddev acquia-clone-site-1 coorslight
+## CanRunGlobally: false
+
+set -e
+
+# 📌 Paths
+GLOBAL_CONFIG="$HOME/.ddev/global_config.yaml"
+PROJECTS_JSON="$HOME/.ddev/acquia-projects.json"
+SITES_PATH="docroot/sites"
+CONFIG_FILE=".ddev/config.yaml"
+LOCAL_SITE_YML="drush/sites/loc.site.yml"
+
+# 📌 Ensure script is run inside a valid DDEV project
+if [[ ! -f ".ddev/config.yaml" ]]; then
+    echo "❌ Error: This command must be run inside a valid DDEV project directory."
+    exit 1
+fi
+
+# 📌 Ensure Acquia projects JSON exists
+if [[ ! -f "$PROJECTS_JSON" ]]; then
+    echo "❌ Error: The file acquia-projects.json does not exist. Run 'ddev acquia-sync-envs' first."
+    exit 1
+fi
+
+# 📌 Extract current environment from acquia-projects.json
+PROJECT_PATH="$PWD"
+ENV_DATA=$(jq -c --arg PROJECT_PATH "$PROJECT_PATH" '.projects[] | select(.project_path == $PROJECT_PATH)' "$PROJECTS_JSON")
+
+if [[ -z "$ENV_DATA" ]]; then
+    echo "❌ Error: The current project is not registered in acquia-projects.json. Run 'ddev acquia-sync-envs' first."
+    exit 1
+fi
+
+APP_NAME=$(echo "$ENV_DATA" | jq -r '.app_name')
+ENVIRONMENT_ID=$(echo "$ENV_DATA" | jq -r '.environment_id')
+ENVIRONMENT_TYPE=$(echo "$ENV_DATA" | jq -r '.environment_type')
+
+# 📌 Validate input arguments
+if [[ -z "$1" ]]; then
+  echo "❌ Error: You must specify a site (e.g., ddev acquia-clone-site coorslight)"
+  exit 1
+fi
+SITE_NAME=$1
+
+# 📌 Read Acquia API credentials
+ACQUIA_API_KEY=$(grep "ACQUIA_API_KEY=" "$GLOBAL_CONFIG" | sed 's/.*ACQUIA_API_KEY=\(.*\)$/\1/')
+ACQUIA_API_SECRET=$(grep "ACQUIA_API_SECRET=" "$GLOBAL_CONFIG" | sed 's/.*ACQUIA_API_SECRET=\(.*\)$/\1/')
+
+# 📌 Get authentication token
+TOKEN=$(curl -s -X POST "https://accounts.acquia.com/api/auth/oauth/token" \
+  -d "client_id=$ACQUIA_API_KEY" \
+  -d "client_secret=$ACQUIA_API_SECRET" \
+  -d "grant_type=client_credentials" | jq -r '.access_token')
+
+if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+  echo "❌ Error: Could not retrieve authentication token."
+  exit 1
+fi
+
+# 📌 Fetch latest database list from Acquia
+echo "🔄 Fetching latest database list from Acquia..."
+DB_RESPONSE=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENVIRONMENT_ID/databases" \
+  -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+
+# 📌 Validate if the site exists in the environment
+SITE_DB_INFO=$(echo "$DB_RESPONSE" | jq -r --arg SITE "$SITE_NAME" '._embedded.items[]? | select(.name == $SITE)')
+
+if [[ -z "$SITE_DB_INFO" ]]; then
+  echo "❌ Error: Site '$SITE_NAME' not found in the environment."
+  exit 1
+fi
+
+DB_NAME=$(echo "$SITE_DB_INFO" | jq -r '.name')
+
+# 📌 Ensure "databases" key exists in acquia-projects.json for this environment
+if [[ "$(echo "$ENV_DATA" | jq '.databases')" == "null" ]]; then
+    echo "🔧 Initializing 'databases' key for this environment..."
+    jq --arg PROJECT_PATH "$PROJECT_PATH" '(.projects[] | select(.project_path == $PROJECT_PATH)) .databases = []' \
+        "$PROJECTS_JSON" > "$PROJECTS_JSON.tmp" && mv "$PROJECTS_JSON.tmp" "$PROJECTS_JSON"
+    ENV_DATA=$(jq -c --arg PROJECT_PATH "$PROJECT_PATH" '.projects[] | select(.project_path == $PROJECT_PATH)' "$PROJECTS_JSON")
+fi
+
+# 📌 Check if the site has already been cloned
+EXISTING_SITE=$(echo "$ENV_DATA" | jq -r --arg SITE_NAME "$SITE_NAME" '.databases[]? | select(. == $SITE_NAME)')
+
+if [[ -n "$EXISTING_SITE" ]]; then
+    echo "ℹ️  El sitio '$SITE_NAME' ya está clonado en este ambiente. Verificando configuraciones..."
+    
+    # Verificar alias local
+    if ! grep -q "$DB_NAME:" "$LOCAL_SITE_YML"; then
+        echo "⚠️  Alias local no encontrado, agregando..."
+        echo "$DB_NAME:" >> "$LOCAL_SITE_YML"
+        echo "  root: /var/www/html/docroot" >> "$LOCAL_SITE_YML"
+        echo "  uri: '$DB_NAME.ddev.site'" >> "$LOCAL_SITE_YML"
+    fi
+    
+    # Verificar configuración de conexión a la base de datos
+    SETTINGS_PATH="$SITES_PATH/$DB_NAME/settings.php"
+    if [[ ! -f "$SETTINGS_PATH" ]]; then
+        echo "⚠️  Configuración de conexión no encontrada, creando..."
+        mkdir -p "$SITES_PATH/$DB_NAME"
+        cat > "$SETTINGS_PATH" << EOL
+<?php
+\$databases['default']['default'] = [
+  'database' => '$DB_NAME',
+  'username' => 'db',
+  'password' => 'db',
+  'host' => 'ddev-$APP_NAME-$ENVIRONMENT_TYPE-db',
+  'port' => '3306',
+  'driver' => 'mysql',
+  'prefix' => '',
+  'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+];
+EOL
+    fi
+    
+    # Verificar entrada en sites.local.php
+    SITES_LOCAL_FILE="docroot/sites/sites.local.php"
+    if [[ ! -f "$SITES_LOCAL_FILE" ]]; then
+        touch "$SITES_LOCAL_FILE"
+        echo "<?php" > "$SITES_LOCAL_FILE"
+    fi
+    
+    if ! grep -q "'$DB_NAME'" "$SITES_LOCAL_FILE"; then
+        echo "⚠️  Entrada en sites.local.php no encontrada, agregando..."
+        echo "\$sites['$DB_NAME.ddev.site'] = '$DB_NAME';" >> "$SITES_LOCAL_FILE"
+    fi
+    
+    # Preguntar si se desea sincronizar archivos
+    read -p "¿Deseas sincronizar los archivos del sitio? [y/N]: " SYNC_FILES
+    if [[ "$SYNC_FILES" =~ ^[Yy]$ ]]; then
+        echo "🔄 Sincronizando archivos..."
+        ddev drush @loc.$DB_NAME rsync @$DB_NAME.$ENVIRONMENT_TYPE:%files/ docroot/sites/$DB_NAME/files/ -y
+        echo "✅ Sincronización de archivos completada"
+    fi
+    
+    echo "✅ Verificación de configuraciones completada"
+    exit 0
+fi
+
+# 📌 Agregar alias en loc.site.yml
+LOCAL_SITE_YML="drush/sites/loc.site.yml"
+# Ensure the file exists
+touch "$LOCAL_SITE_YML"
+
+# Ensure the file ends with a newline
+if [[ -s "$LOCAL_SITE_YML" ]]; then
+    tail -c1 "$LOCAL_SITE_YML" | read -r _ || echo >> "$LOCAL_SITE_YML"
+fi
+
+# Check if the alias already exists
+if ! grep -q "$DB_NAME:" "$LOCAL_SITE_YML"; then
+    # Add the new alias in the correct YAML format
+    echo "$DB_NAME:" >> "$LOCAL_SITE_YML"
+    echo "  root: /var/www/html/docroot" >> "$LOCAL_SITE_YML"
+    echo "  uri: '$DB_NAME.ddev.site'" >> "$LOCAL_SITE_YML"
+    echo "Alias for $DB_NAME added to $LOCAL_SITE_YML"
+else
+    echo "Alias for $DB_NAME already exists in $LOCAL_SITE_YML"
+fi
+
+# 📌 Sync database using Drush first, fallback to API download if it fails
+echo "🔄 Attempting to sync database via Drush..."
+# Convertir finales de línea a formato Unix
+dos2unix -q "$(which drush)"
+if ddev drush sql-sync "@$DB_NAME.$ENVIRONMENT_TYPE" "@loc.$DB_NAME" -y; then
+    echo "✅ Database successfully synced via Drush."
+else
+    echo "⚠️ Drush sync failed, falling back to Acquia API backup download."
+    
+    echo "🔄 Fetching latest database backup..."
+    BACKUP_DATA=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENVIRONMENT_ID/databases/$DB_NAME/backups" \
+      -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+    
+    if [[ $(echo "$BACKUP_DATA" | jq -r '._embedded.items | length') -eq 0 ]]; then
+        echo "❌ No backups found for database '$DB_NAME'."
+        exit 1
+    fi
+    
+    LATEST_BACKUP=$(echo "$BACKUP_DATA" | jq -r '._embedded.items | max_by(.started_at)')
+    DOWNLOAD_URL=$(echo "$LATEST_BACKUP" | jq -r '._links.download.href')
+    
+    echo "📥 Downloading backup from $DOWNLOAD_URL..."
+    curl -L -o "$DB_NAME.sql.gz" -X GET "$DOWNLOAD_URL" \
+      -H "Authorization: Bearer $TOKEN" -H "Accept: application/octet-stream"
+    
+    echo "🔄 Importing database into DDEV..."
+    ddev import-db --database=$DB_NAME --file="$DB_NAME.sql.gz"
+    rm -f "$DB_NAME.sql.gz"
+fi
+
+# 📌 Ensure multisite configuration
+mkdir -p "$SITES_PATH/$DB_NAME"
+SETTINGS_PATH="$SITES_PATH/$DB_NAME/settings.php"
+
+if [[ ! -f "$SETTINGS_PATH" ]]; then
+    cat > "$SETTINGS_PATH" << EOL
+<?php
+\$databases['default']['default'] = [
+  'database' => '$DB_NAME',
+  'username' => 'db',
+  'password' => 'db',
+  'host' => 'ddev-$APP_NAME-$ENVIRONMENT_TYPE-db',
+  'port' => '3306',
+  'driver' => 'mysql',
+  'prefix' => '',
+  'namespace' => 'Drupal\\Core\\Database\\Driver\\mysql',
+];
+EOL
+fi
+
+# 📌 Update config.yaml with additional hostname and database
+CONFIG_FILE=".ddev/config.yaml"
+TEMP_FILE=".ddev/config.yaml.tmp"
+
+# 📌 Update multisite configuration
+MULTISITE_CONFIG=".ddev/config.multisite.yaml"
+
+# Create initial file if it doesn't exist
+if [[ ! -f "$MULTISITE_CONFIG" ]]; then
+    echo "🔄 Creating new multisite configuration file..."
+    mkdir -p "$(dirname "$MULTISITE_CONFIG")"
+    cat > "$MULTISITE_CONFIG" << EOL
+additional_hostnames: []
+database:
+    additional_databases: []
+EOL
+fi
+
+# Function to check if entry exists in YAML array
+entry_exists() {
+    local file="$1"
+    local entry="$2"
+    grep -q "^\s*-\s*${entry}$" "$file"
+}
+
+# Add hostname if it doesn't exist
+if ! entry_exists "$MULTISITE_CONFIG" "$DB_NAME"; then
+    echo "🔄 Adding $DB_NAME to additional_hostnames..."
+    awk -v site="$DB_NAME" '
+    /^additional_hostnames:/ { 
+        print $0
+        getline
+        if ($0 ~ /^\s*\[\]\s*$/) {
+            print "  - " site
+        } else {
+            print $0
+            print "  - " site
+        }
+        next
+    }
+    { print }
+    ' "$MULTISITE_CONFIG" > "$MULTISITE_CONFIG.tmp"
+    mv "$MULTISITE_CONFIG.tmp" "$MULTISITE_CONFIG"
+fi
+
+# Add database if it doesn't exist
+if ! entry_exists "$MULTISITE_CONFIG" "$DB_NAME"; then
+    echo "🔄 Adding $DB_NAME to additional_databases..."
+    awk -v site="$DB_NAME" '
+    /^    additional_databases:/ { 
+        print $0
+        getline
+        if ($0 ~ /^\s*\[\]\s*$/) {
+            print "        - " site
+        } else {
+            print $0
+            print "        - " site
+        }
+        next
+    }
+    { print }
+    ' "$MULTISITE_CONFIG" > "$MULTISITE_CONFIG.tmp"
+    mv "$MULTISITE_CONFIG.tmp" "$MULTISITE_CONFIG"
+fi
+
+echo "✅ Multisite configuration updated in $MULTISITE_CONFIG"
+
+# Verify if entries were added correctly
+if ! entry_exists "$TEMP_FILE" "$DB_NAME"; then
+    # If not, append them at the end
+    echo "additional_hostnames:" >> "$TEMP_FILE"
+    echo "  - $DB_NAME" >> "$TEMP_FILE"
+    echo "database:" >> "$TEMP_FILE"
+    echo "    type: mariadb" >> "$TEMP_FILE"
+    echo "    version: \"10.11\"" >> "$TEMP_FILE"
+    echo "    additional_databases:" >> "$TEMP_FILE"
+    echo "        - $DB_NAME" >> "$TEMP_FILE"
+fi
+
+mv "$TEMP_FILE" "$CONFIG_FILE"
+
+# 📌 Update acquia-projects.json
+jq --arg PROJECT_PATH "$PROJECT_PATH" --arg SITE_NAME "$SITE_NAME" \
+    '(.projects[] | select(.project_path == $PROJECT_PATH)) .databases += [$SITE_NAME]' \
+    "$PROJECTS_JSON" > "$PROJECTS_JSON.tmp" && mv "$PROJECTS_JSON.tmp" "$PROJECTS_JSON"
+
+# 📌 Restart DDEV
+echo "🚀 Restarting DDEV to apply changes..."
+ddev restart
+
+ddev drush @loc.$DB_NAME rsync @$DB_NAME.$ENVIRONMENT_TYPE:%files/ docroot/sites/$DB_NAME/files/ -y
+
+echo "✅ Site '$DB_NAME' is now available in your DDEV environment at: https://$DB_NAME.ddev.site"
+

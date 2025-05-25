@@ -1,0 +1,68 @@
+#!/usr/bin/env bash
+set -e
+
+# Configuración de API de Acquia
+ACQUIA_API_KEY=$(ddev exec printenv ACQUIA_API_KEY)
+ACQUIA_API_SECRET=$(ddev exec printenv ACQUIA_API_SECRET)
+PROJECT_ID=$(ddev exec printenv ACQUIA_PROJECT_ID)
+# Obtener token de autenticación
+TOKEN=$(curl -s -X POST "https://accounts.acquia.com/api/auth/oauth/token" \
+  -d "client_id=$ACQUIA_API_KEY" \
+  -d "client_secret=$ACQUIA_API_SECRET" \
+  -d "grant_type=client_credentials" | jq -r '.access_token')
+
+if [[ -z "$TOKEN" || "$TOKEN" == "null" ]]; then
+  echo "❌ Error: No se pudo obtener el token de autenticación."
+  exit 1
+fi
+
+# Pedir al usuario el nombre del entorno
+echo "🔍 Ingrese el nombre del entorno (ejemplo: dev, test, prod, ode143):"
+read ENV_NAME
+
+# Obtener la lista de entornos y buscar el ID del entorno elegido
+ENVIRONMENT_DATA=$(curl -s -X GET "https://cloud.acquia.com/api/applications/$PROJECT_ID/environments" \
+  -H "Authorization: Bearer $TOKEN" -H "Accept: application/json" | jq -r --arg ENV_NAME "$ENV_NAME" '._embedded.items[] | select(.name == $ENV_NAME)')
+
+ENVIRONMENT_ID=$(echo "$ENVIRONMENT_DATA" | jq -r '.id')
+
+if [[ -z "$ENVIRONMENT_ID" ]]; then
+  echo "❌ Error: No se encontró el entorno '$ENV_NAME'. Verifique el nombre e intente nuevamente."
+  exit 1
+fi
+
+echo "✅ Entorno encontrado: $ENVIRONMENT_ID ($ENV_NAME)"
+echo "🔄 Obteniendo sitios..."
+
+# Obtener los sitios en el entorno
+SITES_RESPONSE=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENVIRONMENT_ID" \
+  -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+
+# Procesar cada sitio
+echo "$SITES_RESPONSE" | jq -r '.domains[]' | while read -r domain; do
+    # Extraer el nombre base del dominio (será usado como nombre de la base de datos)
+    db_name=$(echo "$domain" | cut -d'.' -f1)
+    
+    # Agregar al array de hostnames y databases
+    # Nota: ahora solo agregamos el nombre base, sin .ddev.site
+    HOSTNAMES+=("$db_name")
+    DATABASES+=("$db_name")
+done
+
+# Extraer la base de datos y el dominio
+SITES_JSON=$(echo "$SITES_RESPONSE" | jq -c --arg env_name "$ENV_NAME" '
+  .domains[] as $domain | 
+  {
+    "id": (if .id then .id else "N/A" end), 
+    "label": .name,  # Nombre de la base de datos como label
+    "name": ($env_name + "/" + $domain)
+  }')
+
+if [[ -z "$SITES_JSON" ]]; then
+  echo "❌ No se encontraron sitios en el entorno '$ENV_NAME'."
+  exit 1
+fi
+
+# Mostrar el resultado en formato JSON limpio
+echo "✅ Sitios encontrados en el entorno '$ENV_NAME':"
+echo "$SITES_JSON" | jq .

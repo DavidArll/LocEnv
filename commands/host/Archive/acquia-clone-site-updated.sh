@@ -7,11 +7,8 @@
 
 set -e
 
-# 📌 Paths
-GLOBAL_CONFIG="$HOME/.ddev/global_config.yaml"
-PROJECTS_JSON="$HOME/.ddev/acquia-projects.json"
-SITES_PATH="docroot/sites"
-LOCAL_SITE_YML="drush/sites/loc.site.yml"
+source "$(dirname "$0")/../lib/utils.sh"
+
 
 # 📌 Variables
 SITE_NAME=$1
@@ -500,6 +497,35 @@ function verify_sites_php() {
 if (file_exists(__DIR__ . "/sites.local.php")) {
   require __DIR__ . "/sites.local.php";
 }
+
+function register_local_site() {
+  local domain="$1"     # e.g. coorslight.ddev.site
+  local directory="$2"  # e.g. coorslight
+  local sites_file="docroot/sites/sites.local.php"
+
+  echo "🔄 Registering site '$domain' => '$directory' in sites.local.php..."
+
+  if [[ ! -f "$sites_file" ]]; then
+    echo "❌ Error: sites.local.php does not exist. It should be initialized by acquia-clone."
+    exit 1
+  fi
+
+  if grep -q "\$sites\['$domain'\]" "$sites_file"; then
+    echo "ℹ️  The domain '$domain' is already registered. Skipping."
+    return
+  fi
+
+  if grep -q "];" "$sites_file"; then
+    sed -i '' "/];/i\
+\$sites['$domain'] = '$directory';
+" "$sites_file"
+    echo "✅ Site '$domain' registered successfully."
+  else
+    echo "\$sites['$domain'] = '$directory';" >> "$sites_file"
+    echo "✅ Site '$domain' appended to end of sites.local.php."
+  fi
+}
+
 EOF
     else
         echo "ℹ️  Bloque de carga ya presente en sites.php, se omite su inserción."
