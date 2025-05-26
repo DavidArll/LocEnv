@@ -5,7 +5,9 @@ import subprocess # For running DDEV commands
 import os # For path operations
 import json # For JSON parsing
 import logging # For application logging
-from . import utils # Utility functions for DDEV interactions
+#from . import utils # Utility functions for DDEV interactions
+import utils
+
 
 # Configure basic logging for the application
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(module)s - %(message)s')
