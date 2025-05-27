@@ -7,6 +7,7 @@ GLOBAL_CONFIG="$HOME/.ddev/global_config.yaml"
 PROJECTS_JSON="$HOME/.ddev/acquia-projects.json"
 SITES_PATH="docroot/sites"
 LOCAL_SITE_YML="drush/sites/loc.site.yml"
+CONFIG_LOCAL="$HOME/.ddev/config.yaml"
 
 # 📌 Variables
 SITE_NAME=$1
@@ -25,6 +26,14 @@ function load_configuration() {
     ENVIRONMENT_TYPE=$(echo "$ENV_DATA" | jq -r '.environment_type')
     PROJECT_PATH=$(echo "$ENV_DATA" | jq -r '.project_path')
     echo "✅ Configuración cargada correctamente."
+}
+
+function validate_environment() {
+    echo "🔄 Validando entorno..."
+    [[ -f "$CONFIG_LOCAL" ]] || { echo "❌ Error: No es un proyecto DDEV válido."; exit 1; }
+    [[ -f "$PROJECTS_JSON" ]] || { echo "❌ Error: Falta acquia-projects.json."; exit 1; }
+    [[ -n "$SITE_NAME" ]] || { echo "❌ Error: Debes especificar un nombre de sitio."; exit 1; }
+    echo "✅ Entorno validado correctamente."
 }
 
 function authenticate_with_acquia() {
@@ -56,6 +65,7 @@ function authenticate_with_acquia() {
 }
 
 function sync_database() {
+    ddev auth-ssh-custom.sh
     echo "🔄 Sincronizando base de datos..."
     if ddev drush sql-sync "@$DB_NAME.$ENVIRONMENT_TYPE" "@loc.$DB_NAME" -y; then
         echo "✅ Base de datos sincronizada correctamente."
@@ -82,11 +92,23 @@ function sync_database() {
         echo "✅ Base de datos importada correctamente."
     fi
 }
+function verify_site_exists() {
+    echo "🔄 Verificando existencia del sitio en Acquia..."
+    DB_RESPONSE=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENVIRONMENT_ID/databases" \
+        -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+    SITE_DB_INFO=$(echo "$DB_RESPONSE" | jq -r --arg SITE "$SITE_NAME" '._embedded.items[]? | select(.name == $SITE)')
+    [[ -n "$SITE_DB_INFO" ]] || { echo "❌ Error: Sitio '$SITE_NAME' no encontrado."; exit 1; }
+    DB_NAME=$(echo "$SITE_DB_INFO" | jq -r '.name')
+    echo "✅ Sitio '$SITE_NAME' encontrado en Acquia."
+}
 
 echo "********** - Acquia Sync-DB - **********"
 echo ""
-read -p "please input the alias of the site you'd like to sync it's db":
-read -p "Please input the environment type(dev,test or prod) you would like to sync your local env in:"
-load_configuration
+read -p "please input the alias of the site you'd like to sync it's db": DB_NAME
+read -p "Please input the environment type(dev,test or prod) you would like to sync your local env in:" ENVIRONMENT_TYPE
+#validate_environment
+#load_configuration
+#verify_site_exists
 authenticate_with_acquia
+
 sync_database

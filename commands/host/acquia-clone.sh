@@ -10,7 +10,7 @@ set -e
 # 📌 Define paths
 GLOBAL_CONFIG="$HOME/.ddev/global_config.yaml"
 PROJECTS_JSON="$HOME/.ddev/acquia-projects.json"
-PROJECTS_DIR="$HOME/Sites/ddev"
+PROJECTS_DIR="$HOME/sites/ddev2script"
 
 validate_env_data() {
 
