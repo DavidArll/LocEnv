@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+## Description: Pull files from Acquia for given environment and site.
+## Usage: pull-files <environment> <site> [--yes]
+## CanRunGlobally: false
+
+[[ "$DEBUG" == "true" ]] && set -xeo pipefail || set -eo pipefail
+
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+source "$SCRIPT_DIR/../../lib/utils.sh"
+ENV=$1
+SITE=$2
+FLAG=$3
+
+if [[ -z "$ENV" || -z "$SITE" ]]; then
+log_error "Usage: ddev pull-files <environment> <site> [--yes]"
+  exit 1
+fi
+
+log_info "📂 Syncing files for '$SITE' from '$ENV'..."
+
+ddev drush rsync "@$SITE.$ENV:%files/" "@loc.$SITE:%files/" -y
+
+if [[ "$FLAG" == "--yes" ]]; then
+  log_info "✅ Files synced without interaction."
+else
+  log_info -p "✅ Files synced. Press Enter to continue..."
+fi

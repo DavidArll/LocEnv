@@ -1,0 +1,259 @@
+#!/usr/bin/env bash
+
+## Description: Pull database from Acquia usando Drush, Acquia CLI o API as fallback
+## Usage: pull-db <environment> <site> [--method <drush|acli|api>] [--yes|-y] [--site-alias <alias>]
+## Example: ddev pull-db dev mysite --method drush
+## CanRunGlobally: false
+
+[[ "$DEBUG" == "true" ]] && set -xeo pipefail || set -eo pipefail
+
+SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
+source "$SCRIPT_DIR/../../lib/config.sh"
+source "$SCRIPT_DIR/../../lib/utils.sh"
+
+TMP_DIR=".ddev/tmp"
+BACKUP_RETRIES=3
+DRUSH_TIMEOUT=200
+
+cleanup() {
+  log_info "🧹 Limpiando archivos temporales..."
+  [[ -z "$SITE_NAME" ]] && return
+  local pattern="${TMP_DIR}/${SITE_NAME}"*.sql.gz
+  if compgen -G "$pattern" > /dev/null; then
+    rm -f $pattern
+    log_info "🧹 Dumps eliminados"
+  fi
+}
+trap cleanup EXIT INT TERM
+
+validate_inputs() {
+  [[ -z "$ENVIRONMENT" || -z "$SITE_NAME" ]] && {
+    log_error "Uso: ddev pull-db <environment> <site> [--method <drush|acli|api>] [--yes|-y] [--site-alias <alias>]"
+    exit 1
+  }
+  [[ ! "$ENVIRONMENT" =~ ^[a-z0-9-]+$ ]] && log_error "Environment inválido"
+  [[ ! "$SITE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]] && log_error "Nombre de sitio inválido"
+}
+
+validate_project() {
+  local current_path
+  current_path=$(realpath "$PWD")
+  ENV_DATA=$(yq -o=json "$PROJECTS_JSON" | jq -c --arg path "$current_path" '.projects[] | select(.project_path == $path)')
+
+  [[ -z "$ENV_DATA" ]] && {
+    log_error "Proyecto no registrado en $PROJECTS_JSON"
+    log_info "Ejecuta: ${BOLD}ddev acquia-register-project${NC}"
+    exit 1
+  }
+
+  APP_NAME=$(echo "$ENV_DATA" | jq -r '.app_name')
+  ENV_ID=$(echo "$ENV_DATA" | jq -r '.environment_id')
+}
+
+try_drush() {
+  local from_alias="@${SITE_ALIAS:-$SITE_NAME}.$ENVIRONMENT"
+  local to_alias="@loc.$SITE_NAME"
+
+  log_info "🔍 Verificando alias Drush..."
+  if ! ddev drush sa | grep -q "^${from_alias}$"; then
+    log_warning "⚠️ Alias remoto '${from_alias}' no existe"
+    return 1
+  fi
+
+  if ! ddev drush sa | grep -q "^${to_alias}$"; then
+    log_warning "⚠️ Alias local '${to_alias}' no existe"
+    return 1
+  fi
+
+  log_info "🎯 Ejecutando Drush sql-sync:"
+  log_info "   De: ${BOLD}${from_alias}${NC}"
+  log_info "   A : ${BOLD}${to_alias}${NC}"
+
+  if timeout "$DRUSH_TIMEOUT" ddev drush sql-sync "$from_alias" "$to_alias" -y; then
+    log_success "✓ Base de datos importada con Drush"
+    return 0
+  else
+    log_warning "⚠️ Fallo en Drush sql-sync"
+    return 1
+  fi
+}
+
+try_acli() {
+  command -v acli >/dev/null || { log_error "❌ Acquia CLI no está instalado"; return 1; }
+
+  local tmp_sql="${TMP_DIR}/${SITE_NAME}_${ENVIRONMENT}.$(date +%s).sql.gz"
+  log_info "📦 Dump con Acquia CLI..."
+  start_spinner "Exportando..."
+  acli environment:database:dump "${APP_NAME}.${ENVIRONMENT}" "$SITE_NAME" --path="$tmp_sql"
+  local result=$?
+  stop_spinner $result
+
+  if [[ $result -eq 0 ]]; then
+    ddev import-db --database="$SITE_NAME" --file="$tmp_sql"
+    log_success "✓ Base de datos importada con Acquia CLI"
+    return 0
+  else
+    log_error "❌ Falló el dump con Acquia CLI"
+    return 1
+  fi
+}
+create_backup() {
+  log_info "🛡️ Creando respaldo de la base de datos en Acquia..."
+
+  local response status
+  response=$(curl -s -w "%{http_code}" -o /tmp/backup_response.json -X POST \
+    "https://cloud.acquia.com/api/environments/${ENV_ID}/databases/${SITE_NAME}/backups" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json")
+
+  status="${response: -3}"
+  body=$(cat /tmp/backup_response.json)
+
+  if [[ "$status" != "202" ]]; then
+    log_error "❌ Error HTTP al crear el backup (status: $status)"
+    return 1
+  fi
+
+  local message
+  message=$(echo "$body" | jq -r '.message // ""')
+
+  if [[ "$message" == "Creating the backup." ]]; then
+    log_success "✓ Tarea de respaldo iniciada correctamente."
+    local href
+    href=$(echo "$body" | jq -r '._links.self.href // empty')
+    log_info "📎 URL de seguimiento: $href"
+    sleep 20
+  else
+    log_warning "⚠️ Respuesta inesperada del API: $message"
+  fi
+}
+
+try_api() {
+  log_info "🔍 Consultando backups en Acquia..."
+  log_info "🛡️ Iniciando creación de respaldo previo..."
+  create_backup
+  start_spinner "Listando backups..."
+  log_info "Env ID: $ENV_ID"
+  log_info "Site Name: $SITE_NAME"
+  local backups
+  backups=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENV_ID/databases/$SITE_NAME/backups" \
+    -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
+  
+  stop_spinner $?
+
+  # Validar si se encontraron backups
+  local backups_count
+  backups_count=$(echo "$backups" | jq -r '._embedded.items | length')
+  if [[ "$backups_count" -eq 0 ]]; then
+    log_error "❌ No se encontraron backups disponibles para '$SITE_NAME'"
+    return 1
+  fi
+  local download_url
+  log_info "🔍 Encontrados $backups_count backups para '$SITE_NAME'"
+  LATEST_BACKUP=$(echo "$backups" | jq -r '._embedded.items | max_by(.started_at)')
+  download_url=$(echo "$LATEST_BACKUP" | jq -r '._links.download.href')
+  if [[ -z "$download_url" || "$download_url" == "null" ]]; then
+    log_error "❌ No se pudo extraer una URL válida de backup"
+    return 1
+  fi
+
+  local tmp_sql="${TMP_DIR}/${SITE_NAME}_${ENVIRONMENT}.$(date +%s).sql.gz"
+  log_info "⬇️ Descargando backup desde: $download_url"
+
+  
+  for ((i=1; i<=BACKUP_RETRIES; i++)); do
+    start_spinner "Intento $i..."
+    if curl -L -o "$tmp_sql" -X GET "$download_url" -H "Authorization: Bearer $TOKEN" -H "Accept: application/octet-stream"; then
+      log_info "database: $SITE_NAME"
+      log_info "file: $tmp_sql"
+      log_info "size: $(du -h "$tmp_sql" | cut -f1)"
+      stop_spinner 0
+      ddev import-db --database="$SITE_NAME" --file="$tmp_sql"
+      log_success "✓ Base de datos importada exitosamente desde backup API"
+      return 0
+    else
+      stop_spinner 1
+      log_warning "⚠️  Descarga fallida en intento $i. Reintentando..."
+      sleep $((i * 2))
+    fi
+  done
+
+  log_error "❌ Todos los intentos para descargar el backup fallaron"
+  return 1
+}
+
+main() {
+  ENVIRONMENT="$1"
+  SITE_NAME="$2"
+  shift 2
+
+  local METHOD=""
+  local NON_INTERACTIVE=false
+  local SITE_ALIAS=""
+
+  while [[ "$#" -gt 0 ]]; do
+    case $1 in
+      --method) METHOD="$2"; shift 2 ;;
+      --site-alias) SITE_ALIAS="$2"; shift 2 ;;
+      -y|--yes) NON_INTERACTIVE=true; shift ;;
+      *) log_error "❌ Opción desconocida: $1" ;;
+    esac
+  done
+
+  mkdir -p "$TMP_DIR"
+  validate_inputs
+  validate_project
+  get_auth_token
+
+  log_info "🔎 Verificando base de datos en Acquia..."
+  local db_check
+  db_check=$(curl -fsS -H "Authorization: Bearer $TOKEN" \
+    "https://cloud.acquia.com/api/environments/$ENV_ID/databases" | \
+    jq -r --arg db "$SITE_NAME" '._embedded.items[]? | select(.name == $db)')
+
+  [[ -z "$db_check" ]] && log_error "❌ Base de datos '$SITE_NAME' no encontrada"
+
+  log_info "🔍 Validando configuración DDEV..."
+  if ! yq e '.additional_hostnames[], .database.additional_databases[]' .ddev/config.sites.yaml | grep -q "$SITE_NAME"; then
+    log_error "⚠️ DDEV no contiene el sitio '$SITE_NAME'"
+    log_info "Ejecuta: ${BOLD}ddev acquia-clone-site $SITE_NAME${NC}"
+    exit 1
+  fi
+
+  case "$METHOD" in
+    drush) try_drush || exit 1 ;;
+    acli)  try_acli  || exit 1 ;;
+    api)   try_api   || exit 1 ;;
+    "")
+      if try_drush; then
+        :
+      elif $NON_INTERACTIVE; then
+        try_api || exit 1
+      else
+        log_info "Selecciona método de fallback:"
+        select method in acli api abort; do
+          case $method in
+            acli) try_acli && break ;;
+            api)  try_api && break ;;
+            abort) log_info "❌ Operación cancelada"; exit 1 ;;
+          esac
+        done
+      fi
+      ;;
+    *) log_error "❌ Método inválido: $METHOD" ;;
+  esac
+
+  log_success "✅ Base de datos sincronizada para ${BOLD}${SITE_NAME}${NC}"
+  log_info "🌐 Accede a: ${BOLD}https://${SITE_NAME}-${ENVIRONMENT}.ddev.site${NC}"
+}
+
+safe_main() {
+  if ! main "$@"; then
+    log_error "❌ pull-db falló"
+    exit 1
+  fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+  safe_main "$@"
+fi
