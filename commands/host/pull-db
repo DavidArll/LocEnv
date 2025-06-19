@@ -1,23 +1,20 @@
 #!/usr/bin/env bash
 
-## Description: Pull database from Acquia usando Drush, Acquia CLI o API como fallback
+## Description: Pull database from Acquia usando Drush, Acquia CLI o API as fallback
 ## Usage: pull-db <environment> <site> [--method <drush|acli|api>] [--yes|-y] [--site-alias <alias>]
 ## Example: ddev pull-db dev mysite --method drush
 ## CanRunGlobally: false
 
 [[ "$DEBUG" == "true" ]] && set -xeo pipefail || set -eo pipefail
 
-# Cargar librerías
 SCRIPT_DIR="$(dirname "${BASH_SOURCE[0]}")"
 source "$SCRIPT_DIR/../../lib/config.sh"
 source "$SCRIPT_DIR/../../lib/utils.sh"
 
-# 🔄 Variables de ejecución
 TMP_DIR=".ddev/tmp"
 BACKUP_RETRIES=3
 DRUSH_TIMEOUT=200
 
-# 🧹 Limpieza temporal
 cleanup() {
   log_info "🧹 Limpiando archivos temporales..."
   [[ -z "$SITE_NAME" ]] && return
@@ -37,8 +34,6 @@ validate_inputs() {
   [[ ! "$ENVIRONMENT" =~ ^[a-z0-9-]+$ ]] && log_error "Environment inválido"
   [[ ! "$SITE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]] && log_error "Nombre de sitio inválido"
 }
-
-get_auth_token
 
 validate_project() {
   local current_path
@@ -102,11 +97,44 @@ try_acli() {
     return 1
   fi
 }
+create_backup() {
+  log_info "🛡️ Creando respaldo de la base de datos en Acquia..."
+
+  local response status
+  response=$(curl -s -w "%{http_code}" -o /tmp/backup_response.json -X POST \
+    "https://cloud.acquia.com/api/environments/${ENV_ID}/databases/${SITE_NAME}/backups" \
+    -H "Authorization: Bearer $TOKEN" \
+    -H "Content-Type: application/json")
+
+  status="${response: -3}"
+  body=$(cat /tmp/backup_response.json)
+
+  if [[ "$status" != "202" ]]; then
+    log_error "❌ Error HTTP al crear el backup (status: $status)"
+    return 1
+  fi
+
+  local message
+  message=$(echo "$body" | jq -r '.message // ""')
+
+  if [[ "$message" == "Creating the backup." ]]; then
+    log_success "✓ Tarea de respaldo iniciada correctamente."
+    local href
+    href=$(echo "$body" | jq -r '._links.self.href // empty')
+    log_info "📎 URL de seguimiento: $href"
+    sleep 20
+  else
+    log_warning "⚠️ Respuesta inesperada del API: $message"
+  fi
+}
 
 try_api() {
   log_info "🔍 Consultando backups en Acquia..."
+  log_info "🛡️ Iniciando creación de respaldo previo..."
+  create_backup
   start_spinner "Listando backups..."
-  
+  log_info "Env ID: $ENV_ID"
+  log_info "Site Name: $SITE_NAME"
   local backups
   backups=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENV_ID/databases/$SITE_NAME/backups" \
     -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
@@ -120,11 +148,10 @@ try_api() {
     log_error "❌ No se encontraron backups disponibles para '$SITE_NAME'"
     return 1
   fi
-
-  # Obtener el último backup
   local download_url
-  download_url=$(echo "$backups" | jq -r '._embedded.items | sort_by(.started_at) | last | ._links.download.href')
-  
+  log_info "🔍 Encontrados $backups_count backups para '$SITE_NAME'"
+  LATEST_BACKUP=$(echo "$backups" | jq -r '._embedded.items | max_by(.started_at)')
+  download_url=$(echo "$LATEST_BACKUP" | jq -r '._links.download.href')
   if [[ -z "$download_url" || "$download_url" == "null" ]]; then
     log_error "❌ No se pudo extraer una URL válida de backup"
     return 1
@@ -133,10 +160,10 @@ try_api() {
   local tmp_sql="${TMP_DIR}/${SITE_NAME}_${ENVIRONMENT}.$(date +%s).sql.gz"
   log_info "⬇️ Descargando backup desde: $download_url"
 
-  # Intentos con reintento progresivo
+  
   for ((i=1; i<=BACKUP_RETRIES; i++)); do
     start_spinner "Intento $i..."
-    if curl -fL -o "$tmp_sql" -H "Authorization: Bearer $TOKEN" "$download_url"; then
+    if curl -L -o "$tmp_sql" -X GET "$download_url" -H "Authorization: Bearer $TOKEN" -H "Accept: application/octet-stream"; then
       log_info "database: $SITE_NAME"
       log_info "file: $tmp_sql"
       log_info "size: $(du -h "$tmp_sql" | cut -f1)"
@@ -154,7 +181,6 @@ try_api() {
   log_error "❌ Todos los intentos para descargar el backup fallaron"
   return 1
 }
-
 
 main() {
   ENVIRONMENT="$1"
@@ -194,7 +220,6 @@ main() {
     exit 1
   fi
 
-  # Método de ejecución
   case "$METHOD" in
     drush) try_drush || exit 1 ;;
     acli)  try_acli  || exit 1 ;;
@@ -229,7 +254,6 @@ safe_main() {
   fi
 }
 
-# Solo ejecutar si no se sourcea
 if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
   safe_main "$@"
 fi

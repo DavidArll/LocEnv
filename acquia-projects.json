@@ -133,10 +133,14 @@
       "app_name": "millercoorsd8",
       "environment_id": "19131-ddbb7077-3843-4873-86dd-28fde7046bfd",
       "environment_type": "prod",
-      "project_path": "",
+      "project_path": "/Users/c.de.los.santos/sites/ddev2script/millercoorsd8-prod",
       "repository": "millercoorsd8@svn-15689.prod.hosting.acquia.com:millercoorsd8.git",
       "branch": "tags/release/20250220_CoorsADA_Avmodule_error",
-      "ssh_url": "millercoorsd8.prod@millercoorsd8.ssh.prod.acquia-sites.com"
+      "ssh_url": "millercoorsd8.prod@millercoorsd8.ssh.prod.acquia-sites.com",
+      "databases": [
+        "creemore",
+        "granville"
+      ]
     },
     {
       "app_name": "millercoorsd8",

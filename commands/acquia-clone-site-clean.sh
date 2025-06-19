@@ -4,9 +4,12 @@
 ## Usage: acquia-clone-site  [site_name]
 ## Example: ddev acquia-clone-site coorslight
 ## CanRunGlobally: false
-
+#ource "$HOME/.ddev/commands/host/acquia-syncdb.sh"
 set -e
 source "$(dirname "$0")/../lib/utils.sh"
+
+source /Users/c.de.los.santos/.ddev/commands/host/acquia-sdbf.sh
+
 
 # 📌 Paths
 GLOBAL_CONFIG="$HOME/.ddev/global_config.yaml"
@@ -294,33 +297,6 @@ function verify_configurations() {
     echo "✅ Configuraciones verificadas correctamente."
 }
 
-function sync_database() {
-    echo "🔄 Sincronizando base de datos..."
-    if ddev drush sql-sync "@$DB_NAME.$ENVIRONMENT_TYPE" "@loc.$DB_NAME" -y; then
-        echo "✅ Base de datos sincronizada correctamente."
-    else
-        echo "⚠️  Falló la sincronización con Drush, usando backup de Acquia..."
-        BACKUP_DATA=$(curl -s -X GET "https://cloud.acquia.com/api/environments/$ENVIRONMENT_ID/databases/$DB_NAME/backups" \
-            -H "Authorization: Bearer $TOKEN" -H "Accept: application/json")
-        
-        if [[ $(echo "$BACKUP_DATA" | jq -r '._embedded.items | length') -eq 0 ]]; then
-            echo "❌ No se encontraron backups para la base de datos '$DB_NAME'."
-            exit 1
-        fi
-        
-        LATEST_BACKUP=$(echo "$BACKUP_DATA" | jq -r '._embedded.items | max_by(.started_at)')
-        DOWNLOAD_URL=$(echo "$LATEST_BACKUP" | jq -r '._links.download.href')
-        
-        echo "📥 Descargando backup desde $DOWNLOAD_URL..."
-        curl -L -o "$DB_NAME.sql.gz" -X GET "$DOWNLOAD_URL" \
-            -H "Authorization: Bearer $TOKEN" -H "Accept: application/octet-stream"
-        
-        echo "🔄 Importando base de datos en DDEV..."
-        ddev import-db --database="$DB_NAME" --file="$DB_NAME.sql.gz"
-        rm -f "$DB_NAME.sql.gz"
-        echo "✅ Base de datos importada correctamente."
-    fi
-}
 
 function verify_directory_permissions() {
     echo "🔄 Verificando permisos de directorios..."
@@ -377,7 +353,6 @@ function sync_files() {
         # No se detiene el script, simplemente se continúa.
     fi
 }
-
 
 
 function update_acquia_projects() {
@@ -440,7 +415,7 @@ function offer_sync_options() {
  #   echo "✅ Sincronización completada."
 }
 
-ddev auth ssh
+ddev auth-ssh-custom.sh
 
 function verify_database_access() {
     echo "🔄 Verificando acceso a la base de datos..."

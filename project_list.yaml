@@ -4,9 +4,7 @@ ddevproj:
     approot: /Users/c.de.los.santos/Documents/ddevroot
 mcbcna2:
     approot: /Users/c.de.los.santos/sites/mcbcna2ddev/mcbcna2
-mccdev:
-    approot: /Users/c.de.los.santos/sites/millercoorsd8
 mcdev:
     approot: /Users/c.de.los.santos/sites/ddevAcquiaDocroot
-testProject:
-    approot: /Users/c.de.los.santos/sites/testclone/millercoorsd8
+millercoorsd8-prod:
+    approot: /Users/c.de.los.santos/sites/ddev2script/millercoorsd8-prod

@@ -225,7 +225,7 @@ if (file_exists(\$app_root . '/' . \$site_path . '/settings.local.php')) {
 }" >> "$SETTINGS_PATH"
     fi
 
-    chmod 644 "$SETTINGS_PATH" "$SETTINGS_LOCAL_PATH"
+    #chmod 644 "$SETTINGS_PATH" "$SETTINGS_LOCAL_PATH"
     echo "✅ Configuración de conexión verificada."
 }
 
@@ -337,8 +337,8 @@ function verify_directory_permissions() {
     mkdir -p "$SITE_PATH/files"
     
     # Establecer permisos base
-    chmod 755 "$SITE_PATH"
-    chmod 755 "$SITE_PATH/files"
+    #chmod 755 "$SITE_PATH"
+    #chmod 755 "$SITE_PATH/files"
     
     echo "🔄 Ajustando propietario de archivos dentro del contenedor..."
     # Usar sudo dentro del contenedor para cambiar el propietario
@@ -359,22 +359,22 @@ function sync_files() {
     # Asegurar que el directorio de destino existe y tiene los permisos correctos
     echo "test 0"
     mkdir -p "$SITES_PATH/$DB_NAME/files"
-    chmod 755 "$SITES_PATH/$DB_NAME/files"
+    #chmod 755 "$SITES_PATH/$DB_NAME/files"
     ddev exec sudo chown -R www-data:www-data /var/www/html/docroot/sites/"$DB_NAME"/files
     echo "test 1"
     # Ejecutar la sincronización y capturar la salida y el código de salida
-    verify_directory_permissions
+    #verify_directory_permissions
     echo "ddev drush rsync @$DB_NAME.$ENVIRONMENT_TYPE:%files/ @loc.$DB_NAME:%files/ -y --verbose"
     rsync_output=$(ddev drush rsync @$DB_NAME.$ENVIRONMENT_TYPE:%files/ @loc.$DB_NAME:%files/ -y --verbose 2>&1)
     RSYNC_EXIT=$?
     echo "test 2"
     if [[ $RSYNC_EXIT -eq 0 ]]; then
         echo "✅ Archivos sincronizados correctamente."
-        verify_directory_permissions
+       # verify_directory_permissions
     elif [[ $RSYNC_EXIT -eq 23 ]]; then
         echo "⚠️ Sincronización completada con warnings (algunos archivos no se transfirieron)."
         echo "$rsync_output"
-        verify_directory_permissions
+        #verify_directory_permissions
     else
         echo "❌ Error al sincronizar archivos (código de salida: $RSYNC_EXIT)."
         echo "$rsync_output"
@@ -480,14 +480,14 @@ function fix_host_permissions() {
     HOST_SITE_FILES="$PROJECT_PATH/docroot/sites/$DB_NAME/files"
     
     if [[ -d "$HOST_SITE_FILES" ]]; then
-        chmod -R 775 "$HOST_SITE_FILES"
+        #chmod -R 775 "$HOST_SITE_FILES"
         chown -R "$USER":staff "$HOST_SITE_FILES"
         echo "✅ Permisos en host actualizados en $HOST_SITE_FILES"
     else
         echo "⚠️ El directorio $HOST_SITE_FILES no existe, creándolo..."
         mkdir -p "$HOST_SITE_FILES"
-        chmod -R 775 "$HOST_SITE_FILES"
-        chown -R "$USER":staff "$HOST_SITE_FILES"
+        #chmod -R 775 "$HOST_SITE_FILES"
+        #chown -R "$USER":staff "$HOST_SITE_FILES"
         echo "✅ Directorio $HOST_SITE_FILES creado y permisos configurados."
     fi
 }
@@ -546,7 +546,7 @@ function finalize_process() {
     # Primero, ajustar permisos en el host
     fix_host_permissions
     # Luego, verificar y ajustar permisos dentro del contenedor
-    verify_directory_permissions
+    #verify_directory_permissions
     verify_database_access
     #verify_ddev_config
     

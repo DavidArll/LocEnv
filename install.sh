@@ -153,9 +153,9 @@ function summary() {
 check_brew
 check_ddev
 install_tools
-install_acquia_cli
+#install_acquia_cli
 setup_global_commands
 validate_global_files
-setup_multisite_base
-validate_ddev_drush_composer
+#setup_multisite_base
+#validate_ddev_drush_composer
 summary

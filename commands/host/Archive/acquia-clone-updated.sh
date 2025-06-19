@@ -7,7 +7,10 @@
 
 set -e
 
-source "$(dirname "$0")/../lib/utils.sh"
+# 📌 Define paths
+GLOBAL_CONFIG="$HOME/.ddev/global_config.yaml"
+PROJECTS_JSON="$HOME/.ddev/acquia-projects.json"
+PROJECTS_DIR="$HOME/sites/ddev2script"
 
 validate_env_data() {
 
