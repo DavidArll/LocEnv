@@ -26,39 +26,94 @@ TOKEN=""
 
 function verify_dependencies() {
   echo "🔄 Verificando dependencias necesarias..."
-
-  # Verificar Homebrew
-  if ! command -v brew &>/dev/null; then
-      echo "⚠️ Homebrew no está instalado. Instalando Homebrew..."
-      /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
-  else
-      echo "✅ Homebrew ya está instalado."
+  CURRENT_OS="unknown"
+  if [[ "$(uname)" == "Darwin" ]]; then
+    CURRENT_OS="macOS"
+  elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
+    CURRENT_OS="Linux"
+  elif [[ "$(expr substr $(uname -s) 1 10)" == "MINGW32_NT" || "$(expr substr $(uname -s) 1 10)" == "MINGW64_NT" || "$OSTYPE" == "cygwin" || "$OSTYPE" == "msys" ]]; then
+    CURRENT_OS="Windows" # Or more specifically Git Bash / MinGW
   fi
+  echo "ℹ️ Detected OS: $CURRENT_OS"
 
-  # Verificar yq (para manipular YAML)
-  if ! command -v yq &>/dev/null; then
-      echo "⚠️ yq no encontrado. Instalando yq..."
-      brew install yq
-  else
-      echo "✅ yq ya está instalado."
-  fi
-
-  # Verificar curl (normalmente preinstalado en macOS)
+  # Verify curl (normally pre-installed)
   if ! command -v curl &>/dev/null; then
-      echo "⚠️ curl no encontrado. Instalando curl..."
+    echo "⚠️ curl no encontrado."
+    if [[ "$CURRENT_OS" == "macOS" ]]; then
+      if ! command -v brew &>/dev/null; then
+        echo "⚠️ Homebrew no está instalado. Por favor, instale Homebrew primero: https://brew.sh/"
+        exit 1
+      fi
+      echo "Instalando curl vía Homebrew..."
       brew install curl
+    elif [[ "$CURRENT_OS" == "Linux" ]]; then
+      echo "Por favor, instale curl usando el gestor de paquetes de su distribución (ej. sudo apt-get install curl o sudo yum install curl)."
+      exit 1
+    elif [[ "$CURRENT_OS" == "Windows" ]]; then
+      echo "Por favor, instale curl. Puede descargarlo desde https://curl.se/windows/ o usar un gestor de paquetes como Chocolatey (choco install curl) o winget."
+      exit 1
+    fi
   else
-      echo "✅ curl ya está instalado."
+    echo "✅ curl ya está instalado."
   fi
 
-  # Verificar jq (para manipulación de JSON)
+  # Verify jq
   if ! command -v jq &>/dev/null; then
-      echo "⚠️ jq no encontrado. Instalando jq..."
+    echo "⚠️ jq no encontrado."
+    if [[ "$CURRENT_OS" == "macOS" ]]; then
+      if ! command -v brew &>/dev/null; then
+        echo "⚠️ Homebrew no está instalado. Por favor, instale Homebrew primero: https://brew.sh/"
+        exit 1
+      fi
+      echo "Instalando jq vía Homebrew..."
       brew install jq
+    elif [[ "$CURRENT_OS" == "Linux" ]]; then
+      echo "Por favor, instale jq usando el gestor de paquetes de su distribución (ej. sudo apt-get install jq o sudo yum install jq)."
+      echo "Alternativamente, descargue el binario desde https://stedolan.github.io/jq/download/"
+      exit 1
+    elif [[ "$CURRENT_OS" == "Windows" ]]; then
+      echo "Por favor, instale jq. Puede descargarlo desde https://stedolan.github.io/jq/download/ o usar un gestor de paquetes como Chocolatey (choco install jq) o winget."
+      echo "Asegúrese de que esté en su PATH y accesible desde Git Bash/WSL si lo usa."
+      exit 1
+    fi
   else
-      echo "✅ jq ya está instalado."
+    echo "✅ jq ya está instalado."
   fi
-  echo "✅ Todas las dependencias necesarias están instaladas."
+
+  # Verify yq
+  if ! command -v yq &>/dev/null; then
+    echo "⚠️ yq no encontrado."
+    if [[ "$CURRENT_OS" == "macOS" ]]; then
+      if ! command -v brew &>/dev/null; then
+        echo "⚠️ Homebrew no está instalado. Por favor, instale Homebrew primero: https://brew.sh/"
+        exit 1
+      fi
+      echo "Instalando yq vía Homebrew..."
+      brew install yq
+    elif [[ "$CURRENT_OS" == "Linux" ]];then
+      echo "Por favor, instale yq usando el gestor de paquetes de su distribución (ej. sudo apt-get install yq o sudo yum install yq)."
+      echo "Alternativamente, descargue el binario desde https://github.com/mikefarah/yq/releases"
+      exit 1
+    elif [[ "$CURRENT_OS" == "Windows" ]]; then
+      echo "Por favor, instale yq. Puede descargarlo desde https://github.com/mikefarah/yq/releases o usar un gestor de paquetes como Chocolatey (choco install yq) o winget."
+      echo "Asegúrese de que esté en su PATH y accesible desde Git Bash/WSL si lo usa."
+      exit 1
+    fi
+  else
+    echo "✅ yq ya está instalado."
+  fi
+
+  # Verify Homebrew only on macOS and if it's not already installed (it's used for jq/yq if they are missing)
+  if [[ "$CURRENT_OS" == "macOS" ]]; then
+    if ! command -v brew &>/dev/null; then
+        echo "⚠️ Homebrew no está instalado. Instalando Homebrew..."
+        /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    else
+        echo "✅ Homebrew ya está instalado."
+    fi
+  fi
+
+  echo "✅ Todas las dependencias necesarias están instaladas o se ha informado al usuario."
 }
 
 # Ejecutar la verificación de dependencias al inicio del script
@@ -556,7 +611,25 @@ function verify_drush_executable() {
     if [[ -f "vendor/bin/drush" ]]; then
         echo "🔧 Corrigiendo finales de línea en vendor/bin/drush..."
         # Obtener los permisos actuales
-        CURRENT_PERMS=$(stat -f %A "vendor/bin/drush")
+        # Detect OS for stat command even if CURRENT_OS is already defined globally,
+        # as this function might be sourced or called in different contexts.
+        local STAT_OS_CHECK="unknown"
+        if [[ "$(uname)" == "Darwin" ]]; then
+          STAT_OS_CHECK="macOS"
+        elif [[ "$(expr substr $(uname -s) 1 5)" == "Linux" ]]; then
+          STAT_OS_CHECK="Linux"
+        fi
+
+        if [[ "$STAT_OS_CHECK" == "macOS" ]]; then
+          CURRENT_PERMS=$(stat -f %A "vendor/bin/drush")
+        elif [[ "$STAT_OS_CHECK" == "Linux" ]]; then
+          CURRENT_PERMS=$(stat -c %a "vendor/bin/drush")
+        else
+          # Windows or other OS: Skip permission check or set a default.
+          # Drush is likely run via DDEV exec in a Linux container context.
+          echo "ℹ️  Saltando la verificación de permisos de Drush en $STAT_OS_CHECK. Se gestionará dentro del contenedor DDEV."
+          CURRENT_PERMS="755" # Default sensible permission
+        fi
         
         # Crear un archivo temporal
         TEMP_FILE=$(mktemp)

@@ -40,6 +40,23 @@ The application is built using Python, Flask (for the web server backend), and P
         -   The `acquia-get-sites` command, if interactive, might not work as expected with the dashboard. It should ideally be non-interactive for listing sites.
         -   The `acquia-clone-site` command (when used for re-syncing) is expected to be interactive (prompting for DB/files sync). The dashboard will display this script's output, including any prompts, allowing the user to see what's required. For a fully automated experience, these scripts would need to support non-interactive flags, which the dashboard could then utilize (this is a potential future enhancement).
 
+## Cross-Platform Compatibility
+
+This dashboard and its associated command-line tools are designed to work on Linux, macOS, and Windows.
+
+**Windows Specifics:**
+Windows users need a Unix-like environment to run the shell-based commands:
+*   **Recommended Environments:** Git Bash (comes with Git for Windows) or Windows Subsystem for Linux (WSL).
+*   **Required Utilities:** Ensure that `curl`, `jq`, and `yq` are installed and accessible in your PATH within your chosen Windows environment.
+    *   You can install these using package managers like Chocolatey (`choco install jq yq curl`), winget (`winget install jq yq curl`), or by downloading their official binaries and adding them to your PATH.
+    *   The scripts include checks and will guide you if these dependencies are missing.
+
+**Running Commands (Reminder):**
+Most of these scripts are intended to be used as DDEV custom commands (e.g., `ddev acquia-clone-site`).
+
+**Line Endings:**
+The repository uses a `.gitattributes` file to enforce LF line endings for scripts in the `commands/` directory, which helps prevent issues if files are edited on Windows.
+
 ## Installation and Setup (Running from Source)
 
 1.  **Clone the repository:**
